@@ -1,0 +1,11 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    'docker:enableMajor',
+    'mergeConfidence:all-badges',
+    ':disableRateLimiting',
+    ':semanticCommits',
+    'github>layertwo/renovate-config'
+  ]
+}
