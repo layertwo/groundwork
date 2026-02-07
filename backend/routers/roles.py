@@ -1,4 +1,5 @@
 import asyncio
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -6,24 +7,49 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from backend.config import settings
 from backend.database import get_db
-from backend.dependencies.auth import get_current_admin, get_current_user
-from backend.exceptions import ConflictError, GroundworkError, NotFoundError
+from backend.dependencies.auth import (
+    get_current_admin,
+    get_current_session,
+    get_current_user,
+    get_fresh_id_token,
+)
+from backend.exceptions import ConflictError, ForbiddenError, GroundworkError, NotFoundError
 from backend.models.account import Account
 from backend.models.job import Job
 from backend.models.role import Role
 from backend.models.role_template import RoleTemplate
-from backend.models.user import User
-from backend.schemas.role import RoleCreate, RoleResponse, RoleUpdate
+from backend.models.user import Session, User
+from backend.schemas.role import (
+    AssumeRoleRequest,
+    AssumeRoleResponse,
+    ConsoleUrlResponse,
+    RoleCreate,
+    RoleResponse,
+    RoleUpdate,
+)
 from backend.schemas.role_template import (
     RoleTemplateCreate,
     RoleTemplateResponse,
     RoleTemplateUpdate,
 )
+from backend.services import aws
 from backend.services.audit import log_event
 from backend.services.jobs import execute_job
 
 router = APIRouter(tags=["roles"])
+
+_SESSION_NAME_RE = re.compile(r"[^\w+=,.@\-]")
+_SESSION_NAME_MAX_LEN = 64
+
+
+def _sanitize_session_name(email: str) -> str:
+    """Sanitize an email for use as STS RoleSessionName.
+
+    AWS requires RoleSessionName to match [\\w+=,.@\\-]* and be <= 64 chars.
+    """
+    return _SESSION_NAME_RE.sub("_", email)[:_SESSION_NAME_MAX_LEN]
 
 
 # ---------------------------------------------------------------------------
@@ -274,12 +300,117 @@ async def list_roles(
     return visible
 
 
-@router.post("/api/roles/assume")
-async def assume_role() -> Response:
-    return Response(
-        status_code=501,
-        content='{"detail":"Not implemented"}',
-        media_type="application/json",
+async def _load_role_for_assumption(
+    role_id: UUID,
+    user: User,
+    db: AsyncSession,
+) -> Role:
+    """Load a role by ID and verify the user has access to assume it."""
+    result = await db.execute(
+        select(Role).options(joinedload(Role.account)).where(Role.id == role_id)
+    )
+    role = result.scalar_one_or_none()
+    if role is None:
+        raise NotFoundError("Role not found")
+
+    # Access check: user's groups intersect allowed_groups OR sub in allowed_users
+    user_groups = set(user.groups or [])
+    role_groups = set(role.allowed_groups or [])
+    if not (user_groups & role_groups) and user.sub not in (role.allowed_users or []):
+        raise ForbiddenError("You do not have access to assume this role")
+
+    # Account must be active
+    if role.account.status != "active":
+        raise GroundworkError("Account is not active", status_code=400)
+
+    return role
+
+
+@router.post("/api/roles/assume", response_model=AssumeRoleResponse)
+async def assume_role(
+    body: AssumeRoleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    session: Session = Depends(get_current_session),
+):
+    user = session.user
+    role = await _load_role_for_assumption(body.role_id, user, db)
+
+    id_token = await get_fresh_id_token(session, db)
+
+    credentials = await aws.assume_role_with_web_identity(
+        role_arn=role.role_arn,
+        id_token=id_token,
+        session_duration=role.api_session_duration,
+        session_name=_sanitize_session_name(user.email),
+    )
+
+    await log_event(
+        db,
+        action="role.assume",
+        user_id=user.id,
+        resource_type="role",
+        resource_id=str(role.id),
+        detail={
+            "role_name": role.role_name,
+            "account_id": str(role.account_id),
+            "role_arn": role.role_arn,
+        },
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    return AssumeRoleResponse(
+        access_key_id=credentials["access_key_id"],
+        secret_access_key=credentials["secret_access_key"],
+        session_token=credentials["session_token"],
+        expiration=credentials["expiration"],
+    )
+
+
+@router.post("/api/roles/console", response_model=ConsoleUrlResponse)
+async def console_access(
+    body: AssumeRoleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    session: Session = Depends(get_current_session),
+):
+    user = session.user
+    role = await _load_role_for_assumption(body.role_id, user, db)
+
+    id_token = await get_fresh_id_token(session, db)
+
+    credentials = await aws.assume_role_with_web_identity(
+        role_arn=role.role_arn,
+        id_token=id_token,
+        session_duration=role.console_session_duration,
+        session_name=_sanitize_session_name(user.email),
+    )
+
+    console_url = await aws.get_console_url(
+        credentials=credentials,
+        console_session_duration=role.console_session_duration,
+        issuer=settings.app_url,
+    )
+
+    await log_event(
+        db,
+        action="role.console",
+        user_id=user.id,
+        resource_type="role",
+        resource_id=str(role.id),
+        detail={
+            "role_name": role.role_name,
+            "account_id": str(role.account_id),
+            "role_arn": role.role_arn,
+        },
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    return ConsoleUrlResponse(
+        console_url=console_url,
+        expiration=credentials["expiration"],
     )
 
 

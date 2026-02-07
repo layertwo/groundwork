@@ -8,7 +8,7 @@ All commands require `PYTHONPATH=/Users/lucas/groundwork` (or `PYTHONPATH=.` fro
 
 ```bash
 # Setup
-python3.11 -m venv .venv && source .venv/bin/activate
+python3.14 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 docker compose up -d db
 

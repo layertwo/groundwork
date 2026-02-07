@@ -1,16 +1,20 @@
-"""Tests for roles router including role CRUD and role template CRUD."""
+"""Tests for roles router including role CRUD, role template CRUD, and role assumption."""
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 
 from backend.dependencies.auth import SESSION_COOKIE, sign_session_id
 from backend.models.account import Account
+from backend.models.audit import AuditLog
 from backend.models.job import Job
 from backend.models.role import Role
 from backend.models.role_template import RoleTemplate
 from backend.models.user import Session, User
+from backend.services.crypto import encrypt_token
+from tests.fixtures.oidc import make_id_token
 
 
 async def _create_authenticated_user(db_session, *, is_admin: bool = False, groups=None, sub=None):
@@ -576,3 +580,399 @@ class TestRoleTemplatesDelete:
         )
 
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Role assumption tests (Phase 4)
+# ---------------------------------------------------------------------------
+
+FAKE_STS_CREDS = {
+    "access_key_id": "AKIAIOSFODNN7EXAMPLE",
+    "secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "session_token": "FwoGZXIvYXdzEBYaDHqa0AP1",
+    "expiration": datetime(2026, 6, 1, tzinfo=timezone.utc),
+}
+
+
+async def _create_user_with_tokens(
+    db_session,
+    *,
+    is_admin=False,
+    groups=None,
+    sub=None,
+    id_token_expires_in=3600,
+):
+    """Create a user whose session has encrypted id_token and refresh_token."""
+    sub = sub or f"assume-sub-{id(db_session)}-{is_admin}"
+    email = f"assume-{'admin' if is_admin else 'user'}-{id(db_session)}@example.com"
+    user = User(
+        sub=sub,
+        email=email,
+        display_name="Admin" if is_admin else "User",
+        groups=groups if groups is not None else (["admins"] if is_admin else ["users"]),
+        is_admin=is_admin,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    id_token = make_id_token(sub=sub, email=email, expires_in=id_token_expires_in)
+
+    session = Session(
+        user_id=user.id,
+        id_token=encrypt_token(id_token),
+        refresh_token=encrypt_token("mock-refresh-token"),
+        access_token=encrypt_token("mock-access-token"),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(session)
+    await db_session.flush()
+    return user, sign_session_id(str(session.id))
+
+
+async def _create_role_for_assumption(db_session, account, **overrides):
+    """Create a role on an account with sensible defaults for assumption tests."""
+    defaults = dict(
+        account_id=account.id,
+        role_name="AssumeTestRole",
+        role_arn="arn:aws:iam::123456789012:role/AssumeTestRole",
+        allowed_groups=["devs"],
+        allowed_users=[],
+        api_session_duration=900,
+        console_session_duration=3600,
+    )
+    defaults.update(overrides)
+    role = Role(**defaults)
+    db_session.add(role)
+    await db_session.flush()
+    return role
+
+
+class TestAssumeRole:
+    async def test_assume_role_success(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-user-1"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        with patch(
+            "backend.routers.roles.aws.assume_role_with_web_identity",
+            new_callable=AsyncMock,
+        ) as mock_assume:
+            mock_assume.return_value = FAKE_STS_CREDS
+
+            response = await client.post(
+                "/api/roles/assume",
+                json={"role_id": str(role.id)},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["access_key_id"] == "AKIAIOSFODNN7EXAMPLE"
+        assert data["secret_access_key"] == "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        assert data["session_token"] == "FwoGZXIvYXdzEBYaDHqa0AP1"
+        assert "expiration" in data
+
+        mock_assume.assert_called_once()
+        call_kwargs = mock_assume.call_args.kwargs
+        assert call_kwargs["role_arn"] == role.role_arn
+        assert call_kwargs["session_duration"] == 900
+        assert call_kwargs["session_name"] == user.email
+
+    async def test_assume_role_forbidden_no_group_match(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["finance"], sub="finance-user"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(
+            db_session, account, allowed_groups=["devs"], allowed_users=[]
+        )
+
+        response = await client.post(
+            "/api/roles/assume",
+            json={"role_id": str(role.id)},
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 403
+
+    async def test_assume_role_allowed_users_match(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=[], sub="specific-user"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(
+            db_session,
+            account,
+            allowed_groups=[],
+            allowed_users=["specific-user"],
+        )
+
+        with patch(
+            "backend.routers.roles.aws.assume_role_with_web_identity",
+            new_callable=AsyncMock,
+        ) as mock_assume:
+            mock_assume.return_value = FAKE_STS_CREDS
+
+            response = await client.post(
+                "/api/roles/assume",
+                json={"role_id": str(role.id)},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+
+    async def test_assume_role_inactive_account_rejected(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-inactive"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="Inactive",
+            account_email=f"inactive-assume-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="pending",
+            aws_account_id="123456789012",
+            oidc_provider_arn="arn:aws:iam::123456789012:oidc-provider/idp.example.com",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        response = await client.post(
+            "/api/roles/assume",
+            json={"role_id": str(role.id)},
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 400
+
+    async def test_assume_role_token_refresh(self, client, db_session):
+        """When id_token is near expiry, it should be refreshed before STS call."""
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-refresh", id_token_expires_in=30
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        fresh_id_token = make_id_token(sub="dev-refresh", expires_in=3600)
+
+        with (
+            patch(
+                "backend.routers.roles.aws.assume_role_with_web_identity",
+                new_callable=AsyncMock,
+            ) as mock_assume,
+            patch(
+                "backend.dependencies.auth.oidc.refresh_tokens",
+                new_callable=AsyncMock,
+            ) as mock_refresh,
+        ):
+            mock_assume.return_value = FAKE_STS_CREDS
+            mock_refresh.return_value = {
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+                "id_token": fresh_id_token,
+                "expires_in": 3600,
+            }
+
+            response = await client.post(
+                "/api/roles/assume",
+                json={"role_id": str(role.id)},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+        mock_refresh.assert_called_once()
+        # The STS call should use the refreshed token
+        call_kwargs = mock_assume.call_args.kwargs
+        assert call_kwargs["id_token"] == fresh_id_token
+
+    async def test_assume_role_audit_logged(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-audit"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        with patch(
+            "backend.routers.roles.aws.assume_role_with_web_identity",
+            new_callable=AsyncMock,
+        ) as mock_assume:
+            mock_assume.return_value = FAKE_STS_CREDS
+
+            response = await client.post(
+                "/api/roles/assume",
+                json={"role_id": str(role.id)},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+
+        result = await db_session.execute(select(AuditLog).where(AuditLog.action == "role.assume"))
+        log = result.scalar_one()
+        assert log.user_id == user.id
+        assert log.resource_type == "role"
+        assert log.resource_id == str(role.id)
+        assert log.detail["role_name"] == role.role_name
+        assert log.detail["account_id"] == str(account.id)
+
+    async def test_assume_role_unauthenticated_returns_401(self, client):
+        response = await client.post(
+            "/api/roles/assume",
+            json={"role_id": "00000000-0000-0000-0000-000000000000"},
+        )
+        assert response.status_code == 401
+
+    async def test_assume_role_not_found_returns_404(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-404"
+        )
+
+        response = await client.post(
+            "/api/roles/assume",
+            json={"role_id": "00000000-0000-0000-0000-000000000000"},
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 404
+
+
+class TestConsoleAccess:
+    async def test_console_url_success(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-console"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        with (
+            patch(
+                "backend.routers.roles.aws.assume_role_with_web_identity",
+                new_callable=AsyncMock,
+            ) as mock_assume,
+            patch(
+                "backend.routers.roles.aws.get_console_url",
+                new_callable=AsyncMock,
+            ) as mock_console,
+        ):
+            mock_assume.return_value = FAKE_STS_CREDS
+            mock_console.return_value = (
+                "https://signin.aws.amazon.com/federation?Action=login&SigninToken=abc"
+            )
+
+            response = await client.post(
+                "/api/roles/console",
+                json={"role_id": str(role.id)},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        console_url = urlparse(data["console_url"])
+        assert console_url.hostname == "signin.aws.amazon.com"
+        assert "expiration" in data
+
+        # Should use console_session_duration, not api_session_duration
+        call_kwargs = mock_assume.call_args.kwargs
+        assert call_kwargs["session_duration"] == role.console_session_duration
+
+    async def test_console_url_structure(self, client, db_session):
+        """Verify get_console_url is called with correct params."""
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-console-structure"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(
+            db_session, account, allowed_groups=["devs"], console_session_duration=7200
+        )
+
+        with (
+            patch(
+                "backend.routers.roles.aws.assume_role_with_web_identity",
+                new_callable=AsyncMock,
+            ) as mock_assume,
+            patch(
+                "backend.routers.roles.aws.get_console_url",
+                new_callable=AsyncMock,
+            ) as mock_console,
+        ):
+            mock_assume.return_value = FAKE_STS_CREDS
+            mock_console.return_value = "https://signin.aws.amazon.com/federation?Action=login"
+
+            response = await client.post(
+                "/api/roles/console",
+                json={"role_id": str(role.id)},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+        mock_console.assert_called_once()
+        console_kwargs = mock_console.call_args.kwargs
+        assert console_kwargs["credentials"] == FAKE_STS_CREDS
+        assert console_kwargs["console_session_duration"] == 7200
+
+    async def test_console_forbidden_no_access(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["finance"], sub="finance-console"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(
+            db_session, account, allowed_groups=["devs"], allowed_users=[]
+        )
+
+        response = await client.post(
+            "/api/roles/console",
+            json={"role_id": str(role.id)},
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 403
+
+    async def test_console_audit_logged(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-console-audit"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        with (
+            patch(
+                "backend.routers.roles.aws.assume_role_with_web_identity",
+                new_callable=AsyncMock,
+            ) as mock_assume,
+            patch(
+                "backend.routers.roles.aws.get_console_url",
+                new_callable=AsyncMock,
+            ) as mock_console,
+        ):
+            mock_assume.return_value = FAKE_STS_CREDS
+            mock_console.return_value = "https://signin.aws.amazon.com/federation?Action=login"
+
+            response = await client.post(
+                "/api/roles/console",
+                json={"role_id": str(role.id)},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+
+        result = await db_session.execute(select(AuditLog).where(AuditLog.action == "role.console"))
+        log = result.scalar_one()
+        assert log.user_id == user.id
+        assert log.resource_type == "role"
+        assert log.detail["role_name"] == role.role_name
