@@ -80,6 +80,7 @@ These rules are mandatory for all code changes:
 1. **Security review after every implementation.** After finishing a feature or set of changes, perform a security-focused code review before considering the work complete. Use the code-reviewer agent with a security focus covering auth, input validation, injection, information disclosure, and token/secret handling.
 2. **All security findings must be resolved before pushing to a PR.** Do not push code with known security issues. Critical and high findings must be fixed immediately. Medium and lower findings must also be resolved — do not defer them.
 3. **All integration and unit tests must pass.** Run the full test suite (`PYTHONPATH=. pytest`) and confirm all tests pass before committing. If a test fails, fix the implementation — never edit a test to make it pass.
+4. **Run linting and formatting before every commit.** Run `black backend/ tests/ && isort backend/ tests/` to auto-format, then run `flake8 backend/ tests/` and fix all reported issues. Code must be clean of lint errors before committing.
 
 ## Conventions
 
