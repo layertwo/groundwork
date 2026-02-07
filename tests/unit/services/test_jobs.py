@@ -193,5 +193,5 @@ class TestProvisionJobFailure:
         await db_session.refresh(job)
 
         assert account.status == "failed"
-        assert "Provisioning failed" in account.error_message
+        assert "Operation failed" in account.error_message
         assert job.status == "failed"

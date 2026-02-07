@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import async_session_factory
 from backend.models.account import Account
 from backend.models.job import Job
+from backend.models.role import Role
 from backend.services import aws
 from backend.services.audit import log_event
 
@@ -35,6 +36,9 @@ async def execute_job(job_id: uuid.UUID) -> None:
 
             handlers = {
                 "provision_account": run_provision_account,
+                "create_role": run_create_role,
+                "update_role": run_update_role,
+                "delete_role": run_delete_role,
             }
             handler = handlers.get(job.job_type)
             if handler is None:
@@ -170,11 +174,209 @@ async def run_provision_account(job: Job, db: AsyncSession) -> None:
         await db.commit()
 
 
+async def run_create_role(job: Job, db: AsyncSession) -> None:
+    """Create an IAM role in the target account."""
+    now = datetime.now(timezone.utc)
+    job.status = "in_progress"
+    job.started_at = now
+    db.add(job)
+    await db.commit()
+
+    role_id = job.result["role_id"]
+    result = await db.execute(select(Role).where(Role.id == role_id))
+    role = result.scalar_one_or_none()
+    if role is None:
+        job.status = "failed"
+        job.error_message = "Associated role not found"
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+        await db.commit()
+        return
+
+    result = await db.execute(select(Account).where(Account.id == role.account_id))
+    account = result.scalar_one()
+
+    try:
+        role_arn = await aws.create_iam_role(
+            aws_account_id=account.aws_account_id,
+            role_name=role.role_name,
+            oidc_provider_arn=account.oidc_provider_arn,
+            allowed_groups=role.allowed_groups,
+            allowed_users=role.allowed_users,
+            managed_policy_arns=role.managed_policy_arns,
+            inline_policy=role.inline_policy,
+            max_duration=max(role.api_session_duration, role.console_session_duration),
+        )
+        role.role_arn = role_arn
+        db.add(role)
+
+        job.status = "completed"
+        job.completed_at = datetime.now(timezone.utc)
+        job.result = {**(job.result or {}), "role_arn": role_arn}
+        db.add(job)
+
+        await log_event(
+            db,
+            action="role.create.completed",
+            user_id=job.started_by,
+            resource_type="role",
+            resource_id=str(role.id),
+            detail={"role_arn": role_arn, "account_id": str(account.id)},
+        )
+        await db.commit()
+
+    except Exception as exc:
+        logger.exception("Role creation failed for role %s", role_id)
+        safe_msg = _sanitize_error(exc)
+
+        job.status = "failed"
+        job.error_message = safe_msg
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+
+        await log_event(
+            db,
+            action="role.create.failed",
+            user_id=job.started_by,
+            resource_type="role",
+            resource_id=str(role.id),
+            detail={"error": safe_msg},
+        )
+        await db.commit()
+
+
+async def run_update_role(job: Job, db: AsyncSession) -> None:
+    """Update an IAM role in the target account."""
+    now = datetime.now(timezone.utc)
+    job.status = "in_progress"
+    job.started_at = now
+    db.add(job)
+    await db.commit()
+
+    role_id = job.result["role_id"]
+    changes = job.result.get("changes", {})
+
+    result = await db.execute(select(Role).where(Role.id == role_id))
+    role = result.scalar_one_or_none()
+    if role is None:
+        job.status = "failed"
+        job.error_message = "Associated role not found"
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+        await db.commit()
+        return
+
+    result = await db.execute(select(Account).where(Account.id == role.account_id))
+    account = result.scalar_one()
+
+    try:
+        await aws.update_iam_role(
+            aws_account_id=account.aws_account_id,
+            role_name=role.role_name,
+            oidc_provider_arn=account.oidc_provider_arn,
+            changes=changes,
+        )
+
+        job.status = "completed"
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+
+        await log_event(
+            db,
+            action="role.update.completed",
+            user_id=job.started_by,
+            resource_type="role",
+            resource_id=str(role.id),
+            detail={"changes": list(changes.keys())},
+        )
+        await db.commit()
+
+    except Exception as exc:
+        logger.exception("Role update failed for role %s", role_id)
+        safe_msg = _sanitize_error(exc)
+
+        job.status = "failed"
+        job.error_message = safe_msg
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+
+        await log_event(
+            db,
+            action="role.update.failed",
+            user_id=job.started_by,
+            resource_type="role",
+            resource_id=str(role.id),
+            detail={"error": safe_msg},
+        )
+        await db.commit()
+
+
+async def run_delete_role(job: Job, db: AsyncSession) -> None:
+    """Delete an IAM role from the target account and remove the DB row."""
+    now = datetime.now(timezone.utc)
+    job.status = "in_progress"
+    job.started_at = now
+    db.add(job)
+    await db.commit()
+
+    role_id = job.result["role_id"]
+    role_name = job.result["role_name"]
+    aws_account_id = job.result["aws_account_id"]
+
+    try:
+        await aws.delete_iam_role(aws_account_id, role_name)
+
+        # Delete the Role row from the database
+        result = await db.execute(select(Role).where(Role.id == role_id))
+        role = result.scalar_one_or_none()
+        if role is not None:
+            await db.delete(role)
+
+        job.status = "completed"
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+
+        await log_event(
+            db,
+            action="role.delete.completed",
+            user_id=job.started_by,
+            resource_type="role",
+            resource_id=str(role_id),
+            detail={"role_name": role_name, "aws_account_id": aws_account_id},
+        )
+        await db.commit()
+
+    except Exception as exc:
+        logger.exception("Role deletion failed for role %s", role_id)
+        safe_msg = _sanitize_error(exc)
+
+        job.status = "failed"
+        job.error_message = safe_msg
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+
+        await log_event(
+            db,
+            action="role.delete.failed",
+            user_id=job.started_by,
+            resource_type="role",
+            resource_id=str(role_id),
+            detail={"error": safe_msg},
+        )
+        await db.commit()
+
+
 def _sanitize_error(exc: Exception) -> str:
     """Return a user-safe error message from an exception."""
     msg = str(exc)
+    # Account provisioning errors
     if "Account creation failed:" in msg:
         return msg
     if "Account creation timed out" in msg:
         return msg
-    return "Provisioning failed — see server logs for details"
+    # AWS IAM errors safe to surface
+    safe_codes = ["EntityAlreadyExists", "MalformedPolicyDocument", "NoSuchEntity"]
+    for code in safe_codes:
+        if code in msg:
+            return msg
+    return "Operation failed — see server logs for details"
