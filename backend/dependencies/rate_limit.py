@@ -3,7 +3,7 @@
 import time
 from collections import defaultdict
 
-from fastapi import Depends, Request
+from fastapi import Request
 
 from backend.exceptions import GroundworkError
 

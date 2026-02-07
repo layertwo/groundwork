@@ -1,19 +1,22 @@
-from datetime import datetime
-from typing import Any, Optional
+from __future__ import annotations
+
 import uuid
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import BigInteger, ForeignKey, Index, String, func
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base
 
+if TYPE_CHECKING:
+    from backend.models.user import User
+
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
-    __table_args__ = (
-        Index("ix_audit_log_resource", "resource_type", "resource_id"),
-    )
+    __table_args__ = (Index("ix_audit_log_resource", "resource_type", "resource_id"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(

@@ -1,0 +1,180 @@
+"""Job executor — background task runner for multi-step provisioning jobs."""
+
+import asyncio
+import logging
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.database import async_session_factory
+from backend.models.account import Account
+from backend.models.job import Job
+from backend.services import aws
+from backend.services.audit import log_event
+
+logger = logging.getLogger(__name__)
+
+POLL_INTERVAL_SECONDS = 30
+POLL_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
+
+
+async def execute_job(job_id: uuid.UUID) -> None:
+    """Load a job and dispatch to the appropriate handler.
+
+    Runs in its own DB session (not the request session).
+    """
+    async with async_session_factory() as db:
+        try:
+            result = await db.execute(select(Job).where(Job.id == job_id))
+            job = result.scalar_one_or_none()
+            if job is None:
+                logger.error("Job %s not found", job_id)
+                return
+
+            handlers = {
+                "provision_account": run_provision_account,
+            }
+            handler = handlers.get(job.job_type)
+            if handler is None:
+                logger.error("Unknown job type: %s", job.job_type)
+                job.status = "failed"
+                job.error_message = f"Unknown job type: {job.job_type}"
+                db.add(job)
+                await db.commit()
+                return
+
+            await handler(job, db)
+        except Exception:
+            logger.exception("Unhandled error in job %s", job_id)
+            try:
+                job.status = "failed"
+                job.error_message = "Internal error"
+                job.completed_at = datetime.now(timezone.utc)
+                db.add(job)
+                await db.commit()
+            except Exception:
+                logger.exception("Failed to mark job %s as failed", job_id)
+
+
+async def run_provision_account(job: Job, db: AsyncSession) -> None:
+    """Run the full account provisioning pipeline.
+
+    Steps:
+    1. Create account via Organizations
+    2. Poll until creation completes
+    3. Move account to target OU
+    4. Bootstrap account (OIDC provider + admin role)
+    5. Mark account active
+    """
+    now = datetime.now(timezone.utc)
+    job.status = "in_progress"
+    job.started_at = now
+    db.add(job)
+    await db.commit()
+
+    # Load the associated account
+    result = await db.execute(select(Account).where(Account.id == job.account_id))
+    account = result.scalar_one_or_none()
+    if account is None:
+        job.status = "failed"
+        job.error_message = "Associated account not found"
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+        await db.commit()
+        return
+
+    try:
+        # Step 1: Create account
+        account.status = "provisioning"
+        db.add(account)
+        await db.commit()
+
+        request_id = await aws.create_account(
+            account_name=account.account_name,
+            account_email=account.account_email,
+        )
+        job.result = {"create_account_request_id": request_id}
+        db.add(job)
+        await db.commit()
+
+        # Step 2: Poll for completion
+        elapsed = 0
+        while elapsed < POLL_TIMEOUT_SECONDS:
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            elapsed += POLL_INTERVAL_SECONDS
+
+            status = await aws.poll_account_creation(request_id)
+
+            if status["status"] == "SUCCEEDED":
+                account.aws_account_id = status["aws_account_id"]
+                db.add(account)
+                await db.commit()
+                break
+            elif status["status"] == "FAILED":
+                raise RuntimeError(f"Account creation failed: {status.get('error', 'unknown')}")
+        else:
+            raise RuntimeError("Account creation timed out")
+
+        # Step 3: Move to target OU
+        await aws.move_account_to_ou(account.aws_account_id, account.organizational_unit)
+
+        # Step 4: Bootstrap
+        bootstrap_result = await aws.bootstrap_account(account.aws_account_id)
+        account.oidc_provider_arn = bootstrap_result["oidc_provider_arn"]
+
+        # Step 5: Mark complete
+        account.status = "active"
+        db.add(account)
+
+        job.status = "completed"
+        job.completed_at = datetime.now(timezone.utc)
+        job.result = {
+            **(job.result or {}),
+            "aws_account_id": account.aws_account_id,
+            **bootstrap_result,
+        }
+        db.add(job)
+
+        await log_event(
+            db,
+            action="account.provision.completed",
+            user_id=job.started_by,
+            resource_type="account",
+            resource_id=str(account.id),
+            detail={"aws_account_id": account.aws_account_id},
+        )
+        await db.commit()
+
+    except Exception as exc:
+        logger.exception("Provisioning failed for account %s", account.id)
+        safe_msg = _sanitize_error(exc)
+        account.status = "failed"
+        account.error_message = safe_msg
+        db.add(account)
+
+        job.status = "failed"
+        job.error_message = safe_msg
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+
+        await log_event(
+            db,
+            action="account.provision.failed",
+            user_id=job.started_by,
+            resource_type="account",
+            resource_id=str(account.id),
+            detail={"error": safe_msg},
+        )
+        await db.commit()
+
+
+def _sanitize_error(exc: Exception) -> str:
+    """Return a user-safe error message from an exception."""
+    msg = str(exc)
+    if "Account creation failed:" in msg:
+        return msg
+    if "Account creation timed out" in msg:
+        return msg
+    return "Provisioning failed — see server logs for details"

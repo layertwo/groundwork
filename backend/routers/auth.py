@@ -37,14 +37,10 @@ _COOKIE_OPTS = {
 
 
 @router.get("/login")
-async def login(
-    db: AsyncSession = Depends(get_db), _rl=Depends(rate_limit)
-) -> RedirectResponse:
+async def login(db: AsyncSession = Depends(get_db), _rl=Depends(rate_limit)) -> RedirectResponse:
     # M1: Clean up orphaned pre-auth sessions older than MAX_STATE_AGE
     cutoff = datetime.now(timezone.utc) - MAX_STATE_AGE
-    await db.execute(
-        delete(Session).where(Session.user_id.is_(None), Session.created_at < cutoff)
-    )
+    await db.execute(delete(Session).where(Session.user_id.is_(None), Session.created_at < cutoff))
 
     state = secrets.token_hex(32)
     nonce = secrets.token_hex(32)
@@ -152,16 +148,12 @@ async def callback(
 
 
 @router.post("/logout")
-async def logout(
-    request: Request, db: AsyncSession = Depends(get_db)
-) -> JSONResponse:
+async def logout(request: Request, db: AsyncSession = Depends(get_db)) -> JSONResponse:
     cookie = request.cookies.get(SESSION_COOKIE)
     if cookie:
         session_id = unsign_session_id(cookie)
         if session_id:
-            result = await db.execute(
-                select(Session).where(Session.id == session_id)
-            )
+            result = await db.execute(select(Session).where(Session.id == session_id))
             session = result.scalar_one_or_none()
             if session:
                 user_id = session.user_id

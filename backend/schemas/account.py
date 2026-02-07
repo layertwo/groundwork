@@ -2,19 +2,21 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class AccountCreate(BaseModel):
-    account_name: str
+    account_name: str = Field(min_length=1, max_length=50)
     account_email: EmailStr
-    organizational_unit: str
+    organizational_unit: str = Field(min_length=1, max_length=128, pattern=r"^(ou-|r-)[a-z0-9-]+$")
     sso_user_email: EmailStr
 
 
 class AccountUpdate(BaseModel):
-    account_name: Optional[str] = None
-    organizational_unit: Optional[str] = None
+    account_name: Optional[str] = Field(None, min_length=1, max_length=50)
+    organizational_unit: Optional[str] = Field(
+        None, min_length=1, max_length=128, pattern=r"^(ou-|r-)[a-z0-9-]+$"
+    )
     sso_user_email: Optional[EmailStr] = None
 
 

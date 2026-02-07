@@ -34,9 +34,7 @@ def unsign_session_id(signed: str) -> str | None:
         return None
 
 
-async def get_current_user(
-    request: Request, db: AsyncSession = Depends(get_db)
-) -> User:
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     cookie = request.cookies.get(SESSION_COOKIE)
     if not cookie:
         raise UnauthorizedError()
@@ -46,9 +44,7 @@ async def get_current_user(
         raise UnauthorizedError()
 
     result = await db.execute(
-        select(Session)
-        .options(joinedload(Session.user))
-        .where(Session.id == session_id)
+        select(Session).options(joinedload(Session.user)).where(Session.id == session_id)
     )
     session = result.scalar_one_or_none()
 

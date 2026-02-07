@@ -1,6 +1,5 @@
 """Mock OIDC provider fixtures for testing auth flows."""
 
-import json
 import time
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -69,9 +68,7 @@ def make_token_response(
     return {
         "access_token": f"mock-access-token-{uuid.uuid4().hex[:8]}",
         "refresh_token": f"mock-refresh-token-{uuid.uuid4().hex[:8]}",
-        "id_token": make_id_token(
-            sub=sub, email=email, name=name, groups=groups, nonce=nonce
-        ),
+        "id_token": make_id_token(sub=sub, email=email, name=name, groups=groups, nonce=nonce),
         "token_type": "Bearer",
         "expires_in": expires_in,
     }
