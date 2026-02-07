@@ -17,9 +17,18 @@ logger = logging.getLogger(__name__)
 
 VERSION = "0.1.0"
 
+BANNER = """
+   ╔═══════════╗   ___                     _                 _
+   ║           ║  / __|_ _ ___ _  _ _ _  __| |_ __ _____ _ _| |__
+   ╠═══════════╣ | (_ | '_/ _ \\ || | ' \\/ _` \\ V  V / _ \\ '_| / /
+   ╠═══════════╣  \\___|_| \\___/\\_,_|_||_\\__,_|\\_/\\_/\\___/_| |_\\_\\
+   ╚═══════════╝
+"""
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print(BANNER)
     # Startup: verify DB connectivity
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
