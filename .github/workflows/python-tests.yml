@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'backend/**'
+      - 'tests/**'
       - '.github/workflows/python-tests.yml'
       - 'requirements.txt'
       - 'requirements-dev.txt'
@@ -11,6 +12,7 @@ on:
   pull_request:
     paths:
       - 'backend/**'
+      - 'tests/**'
       - '.github/workflows/python-tests.yml'
       - 'requirements.txt'
       - 'requirements-dev.txt'
@@ -24,6 +26,25 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.13', '3.14']
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: groundwork
+          POSTGRES_PASSWORD: groundwork
+          POSTGRES_DB: groundwork
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PYTHONPATH: .
+      GW_DATABASE_URL: postgresql+asyncpg://groundwork:groundwork@localhost:5432/groundwork
 
     steps:
       - name: Checkout code
@@ -40,6 +61,10 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      - name: Run database migrations
+        run: |
+          alembic upgrade head
 
       - name: Check code formatting with black
         run: |
