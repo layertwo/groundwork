@@ -10,11 +10,11 @@ asyncpg==0.31.0
 alembic==1.18.3
 
 # OIDC / HTTP
-authlib==1.6.0
+authlib==1.6.7
 httpx==0.28.1
 
 # AWS
-aioboto3>=14.1.0,<15
+aioboto3==15.5.0
 
 # Utilities
 python-multipart==0.0.22
