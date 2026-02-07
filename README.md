@@ -8,10 +8,10 @@
 | backend/config.py                    |       21 |        0 |        0 |        0 |    100% |           |
 | backend/database.py                  |       13 |        7 |        0 |        0 |     46% |     27-33 |
 | backend/dependencies/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100% |           |
-| backend/dependencies/auth.py         |       65 |       20 |       18 |        3 |     67% |52, 60, 67-87 |
+| backend/dependencies/auth.py         |      128 |       31 |       40 |       12 |     72% |63, 71, 85-105, 129-130, 140-143, 148->150, 160, 167, 174, 178, 183, 192->194 |
 | backend/dependencies/rate\_limit.py  |       20 |        2 |        2 |        1 |     86% |    19, 33 |
 | backend/exceptions.py                |       26 |        1 |        0 |        0 |     96% |        34 |
-| backend/main.py                      |       58 |       14 |        8 |        3 |     71% |33-44, 71, 85, 107-108, 115 |
+| backend/main.py                      |       58 |       12 |        8 |        3 |     74% |33-44, 71, 85, 115 |
 | backend/models/\_\_init\_\_.py       |        8 |        0 |        0 |        0 |    100% |           |
 | backend/models/account.py            |       21 |        0 |        0 |        0 |    100% |           |
 | backend/models/audit.py              |       21 |        0 |        0 |        0 |    100% |           |
@@ -25,22 +25,22 @@
 | backend/routers/audit.py             |        5 |        0 |        0 |        0 |    100% |           |
 | backend/routers/auth.py              |      115 |        8 |       22 |        5 |     91% |79-87, 155->171, 158->171, 195, 204, 210-212 |
 | backend/routers/jobs.py              |       34 |        2 |       12 |        2 |     91% |    33, 37 |
-| backend/routers/roles.py             |      149 |        8 |       40 |        7 |     92% |50, 76, 140, 144, 169-170, 213, 279, 335->334 |
+| backend/routers/roles.py             |      182 |        7 |       46 |        7 |     94% |76, 102, 166, 170, 195-196, 239, 466->465 |
 | backend/schemas/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/account.py           |       13 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/audit.py             |       13 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/auth.py              |        8 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/common.py            |        6 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/job.py               |        6 |        0 |        0 |        0 |    100% |           |
-| backend/schemas/role.py              |       93 |       11 |       24 |       10 |     82% |20, 26, 29, 35, 38, 44, 47, 51, 100, 107, 113 |
+| backend/schemas/role.py              |       94 |       11 |       24 |       10 |     82% |20, 26, 29, 35, 38, 44, 47, 51, 100, 107, 113 |
 | backend/schemas/role\_template.py    |       32 |        0 |       10 |        0 |    100% |           |
 | backend/services/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100% |           |
 | backend/services/audit.py            |        6 |        0 |        0 |        0 |    100% |           |
-| backend/services/aws.py              |      149 |       48 |       48 |        1 |     62% |21-23, 168-180, 185-192, 304->311, 328-387 |
+| backend/services/aws.py              |      169 |       48 |       48 |        1 |     65% |31-33, 178-190, 195-202, 314->321, 338-397 |
 | backend/services/crypto.py           |       13 |        0 |        0 |        0 |    100% |           |
 | backend/services/jobs.py             |      214 |      133 |       26 |        4 |     39% |29-62, 85-90, 119->108, 122, 179-245, 250-311, 316-366, 381 |
 | backend/services/oidc.py             |       78 |       50 |        4 |        0 |     34% |32-40, 55-66, 71-84, 89-90, 94-124, 128-139 |
-| **TOTAL**                            | **1340** |  **308** |  **224** |   **38** | **75%** |           |
+| **TOTAL**                            | **1457** |  **316** |  **252** |   **47** | **76%** |           |
 
 
 ## Setup coverage badge
