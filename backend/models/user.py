@@ -34,6 +34,8 @@ class Session(UUIDPrimaryKeyMixin, Base):
     state: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     nonce: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
 
     user: Mapped[Optional["User"]] = relationship(back_populates="sessions")

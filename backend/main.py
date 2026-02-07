@@ -2,10 +2,12 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.config import settings
 from backend.database import engine
@@ -29,6 +31,11 @@ BANNER = """
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(BANNER)
+    # Validate session secret is not the default in non-debug mode
+    if not settings.debug and settings.session_secret == "change-me-to-a-random-string":
+        raise RuntimeError(
+            "GW_SESSION_SECRET must be set to a secure random value in production"
+        )
     # Startup: verify DB connectivity
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
@@ -44,6 +51,30 @@ app = FastAPI(
     version=VERSION,
     lifespan=lifespan,
 )
+
+# CSRF protection: require X-Requested-With header on mutating API requests.
+# Browsers will not send custom headers cross-origin without CORS preflight,
+# so this blocks cross-site form/fetch attacks on cookie-authenticated endpoints.
+CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+CSRF_EXEMPT_PATHS = {"/api/auth/callback"}
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        if (
+            request.url.path.startswith("/api/")
+            and request.method not in CSRF_SAFE_METHODS
+            and request.url.path not in CSRF_EXEMPT_PATHS
+            and "x-requested-with" not in request.headers
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Missing X-Requested-With header"},
+            )
+        return await call_next(request)
+
+
+app.add_middleware(CSRFMiddleware)
 
 # Exception handlers
 register_exception_handlers(app)

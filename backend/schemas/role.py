@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -11,7 +11,11 @@ class RoleResponse(BaseModel):
     role_name: str
     role_arn: str
     allowed_groups: list[str]
-    max_session_duration: int
+    managed_policy_arns: list[str]
+    inline_policy: Optional[dict[str, Any]]
+    allowed_users: list[str]
+    api_session_duration: int
+    console_session_duration: int
     description: Optional[str]
     created_at: datetime
     updated_at: datetime
