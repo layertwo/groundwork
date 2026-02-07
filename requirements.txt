@@ -10,7 +10,7 @@ asyncpg==0.31.0
 alembic==1.18.3
 
 # OIDC / HTTP
-authlib==1.6.0
+authlib==1.6.6
 httpx==0.28.1
 
 # AWS
