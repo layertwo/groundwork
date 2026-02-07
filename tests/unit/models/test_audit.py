@@ -1,6 +1,5 @@
 """Unit tests for AuditLog model."""
 
-import pytest
 from sqlalchemy import select
 
 from backend.models import AuditLog

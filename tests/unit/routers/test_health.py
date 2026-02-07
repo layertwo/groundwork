@@ -1,7 +1,5 @@
 """Unit tests for health endpoint."""
 
-import pytest
-
 
 class TestHealthEndpoint:
     async def test_health_returns_ok(self, client):

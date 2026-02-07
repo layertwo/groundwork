@@ -1,7 +1,5 @@
 """Unit tests for audit router stubs."""
 
-import pytest
-
 
 class TestAuditRoutes:
     async def test_list_audit_logs_returns_501(self, client):

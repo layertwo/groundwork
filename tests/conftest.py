@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.database import get_db
 from backend.main import app
+from tests.fixtures.aws import *  # noqa: F403,F401
 from tests.fixtures.database import *  # noqa: F403,F401
 from tests.fixtures.oidc import *  # noqa: F403,F401
 

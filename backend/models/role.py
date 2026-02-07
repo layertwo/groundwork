@@ -1,11 +1,16 @@
-from typing import Any, Optional
+from __future__ import annotations
+
 import uuid
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import ARRAY, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from backend.models.account import Account
 
 
 class Role(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import select
 
 from backend.dependencies.auth import SESSION_COOKIE, sign_session_id
@@ -29,7 +28,9 @@ class TestCallback:
     async def test_callback_creates_user_and_session(
         self, client, db_session, mock_oidc_exchange, mock_oidc_validate
     ):
-        session = Session(state="test-state", nonce="test-nonce", created_at=datetime.now(timezone.utc))
+        session = Session(
+            state="test-state", nonce="test-nonce", created_at=datetime.now(timezone.utc)
+        )
         db_session.add(session)
         await db_session.flush()
 
@@ -96,9 +97,7 @@ class TestCallback:
 
         assert response.status_code == 302
 
-        result = await db_session.execute(
-            select(User).where(User.sub == "existing-sub")
-        )
+        result = await db_session.execute(select(User).where(User.sub == "existing-sub"))
         updated_user = result.scalar_one()
         assert updated_user.email == "updated@example.com"
         assert updated_user.display_name == "Updated Name"

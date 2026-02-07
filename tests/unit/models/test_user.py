@@ -1,7 +1,5 @@
 """Unit tests for User and Session models."""
 
-import uuid
-
 import pytest
 from sqlalchemy import select
 

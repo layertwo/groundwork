@@ -44,17 +44,13 @@ async def list_templates(
     return result.scalars().all()
 
 
-@router.post(
-    "/templates", response_model=RoleTemplateResponse, status_code=201
-)
+@router.post("/templates", response_model=RoleTemplateResponse, status_code=201)
 async def create_template(
     body: RoleTemplateCreate,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ):
-    existing = await db.execute(
-        select(RoleTemplate).where(RoleTemplate.name == body.name)
-    )
+    existing = await db.execute(select(RoleTemplate).where(RoleTemplate.name == body.name))
     if existing.scalar_one_or_none() is not None:
         raise ConflictError(f"Template '{body.name}' already exists")
 
@@ -76,9 +72,7 @@ async def update_template(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ):
-    result = await db.execute(
-        select(RoleTemplate).where(RoleTemplate.id == template_id)
-    )
+    result = await db.execute(select(RoleTemplate).where(RoleTemplate.id == template_id))
     template = result.scalar_one_or_none()
     if template is None:
         raise NotFoundError("Template not found")
@@ -101,9 +95,7 @@ async def delete_template(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ):
-    result = await db.execute(
-        select(RoleTemplate).where(RoleTemplate.id == template_id)
-    )
+    result = await db.execute(select(RoleTemplate).where(RoleTemplate.id == template_id))
     template = result.scalar_one_or_none()
     if template is None:
         raise NotFoundError("Template not found")

@@ -45,9 +45,7 @@ async def create_authorization_url(state: str, nonce: str) -> str:
     try:
         discovery = await _discover(client)
         authorization_endpoint = discovery["authorization_endpoint"]
-        url, _ = client.create_authorization_url(
-            authorization_endpoint, state=state, nonce=nonce
-        )
+        url, _ = client.create_authorization_url(authorization_endpoint, state=state, nonce=nonce)
         return url
     finally:
         await client.aclose()

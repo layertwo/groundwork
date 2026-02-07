@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import select
 
 from backend.dependencies.auth import SESSION_COOKIE, sign_session_id
@@ -72,9 +71,7 @@ class TestRoleTemplatesCreate:
             json={
                 "name": "CustomTemplate",
                 "description": "A custom template",
-                "managed_policy_arns": [
-                    "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
-                ],
+                "managed_policy_arns": ["arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"],
             },
             cookies={SESSION_COOKIE: session_id},
         )
