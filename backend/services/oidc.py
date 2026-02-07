@@ -2,6 +2,7 @@ import logging
 import time
 from typing import Any
 
+import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.jose import JsonWebKey, jwt
 
@@ -27,13 +28,14 @@ def _get_client() -> AsyncOAuth2Client:
     )
 
 
-async def _discover(client: AsyncOAuth2Client) -> dict[str, Any]:
+async def _discover() -> dict[str, Any]:
     global _discovery_cache, _discovery_fetched_at
     now = time.monotonic()
     if _discovery_cache is not None and now - _discovery_fetched_at < _CACHE_TTL:
         return _discovery_cache
     url = f"{settings.oidc_issuer_url.rstrip('/')}/.well-known/openid-configuration"
-    resp = await client.get(url)
+    async with httpx.AsyncClient() as http:
+        resp = await http.get(url)
     resp.raise_for_status()
     _discovery_cache = resp.json()
     _discovery_fetched_at = now
@@ -43,7 +45,7 @@ async def _discover(client: AsyncOAuth2Client) -> dict[str, Any]:
 async def create_authorization_url(state: str, nonce: str) -> str:
     client = _get_client()
     try:
-        discovery = await _discover(client)
+        discovery = await _discover()
         authorization_endpoint = discovery["authorization_endpoint"]
         url, _ = client.create_authorization_url(authorization_endpoint, state=state, nonce=nonce)
         return url
@@ -54,7 +56,7 @@ async def create_authorization_url(state: str, nonce: str) -> str:
 async def exchange_code(code: str) -> dict[str, Any]:
     client = _get_client()
     try:
-        discovery = await _discover(client)
+        discovery = await _discover()
         token_endpoint = discovery["token_endpoint"]
         token = await client.fetch_token(
             token_endpoint,
@@ -71,17 +73,14 @@ async def _fetch_jwks() -> dict[str, Any]:
     now = time.monotonic()
     if _jwks_cache is not None and now - _jwks_fetched_at < _CACHE_TTL:
         return _jwks_cache
-    client = _get_client()
-    try:
-        discovery = await _discover(client)
-        jwks_uri = discovery["jwks_uri"]
-        resp = await client.get(jwks_uri)
-        resp.raise_for_status()
-        _jwks_cache = resp.json()
-        _jwks_fetched_at = now
-        return _jwks_cache
-    finally:
-        await client.aclose()
+    discovery = await _discover()
+    jwks_uri = discovery["jwks_uri"]
+    async with httpx.AsyncClient() as http:
+        resp = await http.get(jwks_uri)
+    resp.raise_for_status()
+    _jwks_cache = resp.json()
+    _jwks_fetched_at = now
+    return _jwks_cache
 
 
 def _clear_jwks_cache() -> None:
@@ -127,7 +126,7 @@ async def validate_id_token(id_token: str, nonce: str) -> dict[str, Any]:
 async def refresh_tokens(refresh_token: str) -> dict[str, Any]:
     client = _get_client()
     try:
-        discovery = await _discover(client)
+        discovery = await _discover()
         token_endpoint = discovery["token_endpoint"]
         token = await client.fetch_token(
             token_endpoint,
