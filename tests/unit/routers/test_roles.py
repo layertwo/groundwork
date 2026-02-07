@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from backend.dependencies.auth import SESSION_COOKIE
+from backend.dependencies.auth import SESSION_COOKIE, sign_session_id
 from backend.models.role_template import RoleTemplate
 from backend.models.user import Session, User
 
@@ -33,7 +33,7 @@ async def _create_authenticated_user(db_session, *, is_admin: bool = False):
     )
     db_session.add(session)
     await db_session.flush()
-    return user, str(session.id)
+    return user, sign_session_id(str(session.id))
 
 
 class TestRoleRouteStubs:
@@ -47,8 +47,13 @@ class TestRoleRouteStubs:
 
 
 class TestRoleTemplatesList:
-    async def test_list_templates_returns_seeded_data(self, client):
-        response = await client.get("/api/roles/templates")
+    async def test_list_templates_returns_seeded_data(self, client, db_session):
+        _, session_id = await _create_authenticated_user(db_session, is_admin=False)
+
+        response = await client.get(
+            "/api/roles/templates",
+            cookies={SESSION_COOKIE: session_id},
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -56,6 +61,10 @@ class TestRoleTemplatesList:
         assert "Admin" in names
         assert "ReadOnly" in names
         assert "PowerUser" in names
+
+    async def test_list_templates_unauthenticated_returns_401(self, client):
+        response = await client.get("/api/roles/templates")
+        assert response.status_code == 401
 
 
 class TestRoleTemplatesCreate:
@@ -98,6 +107,17 @@ class TestRoleTemplatesCreate:
         )
 
         assert response.status_code == 401
+
+    async def test_create_template_invalid_arn_returns_422(self, client, db_session):
+        _, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        response = await client.post(
+            "/api/roles/templates",
+            json={"name": "BadArn", "managed_policy_arns": ["not-a-valid-arn"]},
+            cookies={SESSION_COOKIE: session_id},
+        )
+
+        assert response.status_code == 422
 
     async def test_create_duplicate_template_returns_409(self, client, db_session):
         _, session_id = await _create_authenticated_user(db_session, is_admin=True)

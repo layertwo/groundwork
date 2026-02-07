@@ -1,22 +1,38 @@
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.database import get_db
-from backend.dependencies.auth import SESSION_COOKIE, get_current_user
+from backend.dependencies.auth import (
+    SESSION_COOKIE,
+    get_current_user,
+    sign_session_id,
+    unsign_session_id,
+)
 from backend.exceptions import UnauthorizedError
 from backend.models.user import Session, User
 from backend.schemas.auth import AuthStatus, UserInfo
 from backend.services import audit, oidc
+from backend.services.crypto import encrypt_token
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 MAX_STATE_AGE = timedelta(minutes=10)
+
+_COOKIE_OPTS = {
+    "key": SESSION_COOKIE,
+    "httponly": True,
+    "secure": not settings.debug,
+    "samesite": "lax",
+}
 
 
 @router.get("/login")
@@ -37,19 +53,35 @@ async def callback(
     code: str, state: str, request: Request, db: AsyncSession = Depends(get_db)
 ) -> RedirectResponse:
     result = await db.execute(select(Session).where(Session.state == state))
-    session = result.scalar_one_or_none()
+    pre_auth_session = result.scalar_one_or_none()
 
-    if session is None:
+    if pre_auth_session is None:
+        await audit.log_event(
+            db,
+            action="auth.callback_failed",
+            detail={"reason": "invalid_state"},
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         raise UnauthorizedError("Invalid state parameter")
 
-    age = datetime.now(timezone.utc) - session.created_at.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - pre_auth_session.created_at.replace(
+        tzinfo=timezone.utc
+    )
     if age > MAX_STATE_AGE:
-        await db.delete(session)
+        await db.delete(pre_auth_session)
+        await audit.log_event(
+            db,
+            action="auth.callback_failed",
+            detail={"reason": "state_expired"},
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         raise UnauthorizedError("State expired")
 
     tokens = await oidc.exchange_code(code)
     id_token_str = tokens["id_token"]
-    claims = await oidc.validate_id_token(id_token_str, nonce=session.nonce)
+    claims = await oidc.validate_id_token(id_token_str, nonce=pre_auth_session.nonce)
 
     sub = claims["sub"]
     email = claims.get("email", "")
@@ -77,34 +109,34 @@ async def callback(
         user.last_login_at = now
         db.add(user)
 
+    # M2: Create a new session (prevents session fixation)
+    await db.delete(pre_auth_session)
+
     expires_at = now + timedelta(seconds=tokens.get("expires_in", 3600))
-    session.user_id = user.id
-    session.access_token = tokens.get("access_token")
-    session.refresh_token = tokens.get("refresh_token")
-    session.id_token = id_token_str
-    session.expires_at = expires_at
-    session.state = None
-    session.nonce = None
-    db.add(session)
+    raw_access = tokens.get("access_token")
+    raw_refresh = tokens.get("refresh_token")
+    auth_session = Session(
+        user_id=user.id,
+        access_token=encrypt_token(raw_access) if raw_access else None,
+        refresh_token=encrypt_token(raw_refresh) if raw_refresh else None,
+        id_token=encrypt_token(id_token_str),
+        expires_at=expires_at,
+    )
+    db.add(auth_session)
+    await db.flush()
 
     await audit.log_event(
         db,
         action="auth.login",
         user_id=user.id,
         resource_type="session",
-        resource_id=str(session.id),
+        resource_id=str(auth_session.id),
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
 
     response = RedirectResponse(url=settings.app_url, status_code=302)
-    response.set_cookie(
-        key=SESSION_COOKIE,
-        value=str(session.id),
-        httponly=True,
-        secure=not settings.debug,
-        samesite="lax",
-    )
+    response.set_cookie(value=sign_session_id(str(auth_session.id)), **_COOKIE_OPTS)
     return response
 
 
@@ -112,25 +144,29 @@ async def callback(
 async def logout(
     request: Request, db: AsyncSession = Depends(get_db)
 ) -> JSONResponse:
-    session_id = request.cookies.get(SESSION_COOKIE)
-    if session_id:
-        result = await db.execute(select(Session).where(Session.id == session_id))
-        session = result.scalar_one_or_none()
-        if session:
-            user_id = session.user_id
-            await db.delete(session)
-            await audit.log_event(
-                db,
-                action="auth.logout",
-                user_id=user_id,
-                resource_type="session",
-                resource_id=session_id,
-                ip_address=request.client.host if request.client else None,
-                user_agent=request.headers.get("user-agent"),
+    cookie = request.cookies.get(SESSION_COOKIE)
+    if cookie:
+        session_id = unsign_session_id(cookie)
+        if session_id:
+            result = await db.execute(
+                select(Session).where(Session.id == session_id)
             )
+            session = result.scalar_one_or_none()
+            if session:
+                user_id = session.user_id
+                await db.delete(session)
+                await audit.log_event(
+                    db,
+                    action="auth.logout",
+                    user_id=user_id,
+                    resource_type="session",
+                    resource_id=session_id,
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                )
 
     response = JSONResponse(content={"detail": "logged out"})
-    response.delete_cookie(key=SESSION_COOKIE)
+    response.delete_cookie(**_COOKIE_OPTS)
     return response
 
 
@@ -141,8 +177,12 @@ async def me(user: User = Depends(get_current_user)) -> UserInfo:
 
 @router.get("/status")
 async def status(request: Request, db: AsyncSession = Depends(get_db)) -> AuthStatus:
-    session_id = request.cookies.get(SESSION_COOKIE)
-    if not session_id:
+    cookie = request.cookies.get(SESSION_COOKIE)
+    if not cookie:
+        return AuthStatus(authenticated=False)
+
+    session_id = unsign_session_id(cookie)
+    if session_id is None:
         return AuthStatus(authenticated=False)
 
     try:
@@ -165,4 +205,5 @@ async def status(request: Request, db: AsyncSession = Depends(get_db)) -> AuthSt
             user=UserInfo.model_validate(user),
         )
     except Exception:
+        logger.exception("Unexpected error in /api/auth/status")
         return AuthStatus(authenticated=False)

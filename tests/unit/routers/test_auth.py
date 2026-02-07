@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from backend.dependencies.auth import SESSION_COOKIE
+from backend.dependencies.auth import SESSION_COOKIE, sign_session_id
 from backend.models.user import Session, User
 from tests.fixtures.oidc import MOCK_ISSUER, make_token_response
 
@@ -13,6 +13,10 @@ from tests.fixtures.oidc import MOCK_ISSUER, make_token_response
 def _utcnow_naive() -> datetime:
     """Return current UTC time as a tz-naive datetime (for TIMESTAMP WITHOUT TIME ZONE)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _signed_cookie(session_id: str) -> dict:
+    return {SESSION_COOKIE: sign_session_id(session_id)}
 
 
 class TestLogin:
@@ -137,7 +141,7 @@ class TestMe:
 
         response = await client.get(
             "/api/auth/me",
-            cookies={SESSION_COOKIE: str(session.id)},
+            cookies=_signed_cookie(str(session.id)),
         )
 
         assert response.status_code == 200
@@ -150,6 +154,13 @@ class TestMe:
 
     async def test_me_unauthenticated_returns_401(self, client):
         response = await client.get("/api/auth/me")
+        assert response.status_code == 401
+
+    async def test_me_tampered_cookie_returns_401(self, client):
+        response = await client.get(
+            "/api/auth/me",
+            cookies={SESSION_COOKIE: "tampered-value"},
+        )
         assert response.status_code == 401
 
     async def test_me_expired_session_returns_401(self, client, db_session):
@@ -172,7 +183,7 @@ class TestMe:
 
         response = await client.get(
             "/api/auth/me",
-            cookies={SESSION_COOKIE: str(session.id)},
+            cookies=_signed_cookie(str(session.id)),
         )
 
         assert response.status_code == 401
@@ -200,7 +211,7 @@ class TestStatus:
 
         response = await client.get(
             "/api/auth/status",
-            cookies={SESSION_COOKIE: str(session.id)},
+            cookies=_signed_cookie(str(session.id)),
         )
 
         assert response.status_code == 200
@@ -215,6 +226,15 @@ class TestStatus:
         data = response.json()
         assert data["authenticated"] is False
         assert data["user"] is None
+
+    async def test_status_tampered_cookie_returns_false(self, client):
+        response = await client.get(
+            "/api/auth/status",
+            cookies={SESSION_COOKIE: "bad-signature"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["authenticated"] is False
 
     async def test_status_expired_session_returns_false(self, client, db_session):
         user = User(
@@ -236,7 +256,7 @@ class TestStatus:
 
         response = await client.get(
             "/api/auth/status",
-            cookies={SESSION_COOKIE: str(session.id)},
+            cookies=_signed_cookie(str(session.id)),
         )
 
         assert response.status_code == 200
@@ -265,7 +285,7 @@ class TestLogout:
 
         response = await client.post(
             "/api/auth/logout",
-            cookies={SESSION_COOKIE: str(session.id)},
+            cookies=_signed_cookie(str(session.id)),
         )
 
         assert response.status_code == 200

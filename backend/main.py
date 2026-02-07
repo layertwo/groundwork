@@ -29,6 +29,11 @@ BANNER = """
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(BANNER)
+    # Validate session secret is not the default in non-debug mode
+    if not settings.debug and settings.session_secret == "change-me-to-a-random-string":
+        raise RuntimeError(
+            "GW_SESSION_SECRET must be set to a secure random value in production"
+        )
     # Startup: verify DB connectivity
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))

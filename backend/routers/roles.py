@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
-from backend.dependencies.auth import get_current_admin
+from backend.dependencies.auth import get_current_admin, get_current_user
 from backend.exceptions import ConflictError, NotFoundError
 from backend.models.role_template import RoleTemplate
 from backend.models.user import User
@@ -37,7 +37,9 @@ async def assume_role() -> Response:
 
 
 @router.get("/templates", response_model=list[RoleTemplateResponse])
-async def list_templates(db: AsyncSession = Depends(get_db)):
+async def list_templates(
+    db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)
+):
     result = await db.execute(select(RoleTemplate).order_by(RoleTemplate.name))
     return result.scalars().all()
 
@@ -81,9 +83,11 @@ async def update_template(
     if template is None:
         raise NotFoundError("Template not found")
 
+    _UPDATABLE = {"name", "description", "managed_policy_arns"}
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        setattr(template, field, value)
+        if field in _UPDATABLE:
+            setattr(template, field, value)
 
     db.add(template)
     await db.flush()
