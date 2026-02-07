@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 SESSION_COOKIE = "gw_session"
 REFRESH_THRESHOLD = timedelta(minutes=5)
+ABSOLUTE_SESSION_LIFETIME = timedelta(hours=24)
 
 _signer = URLSafeSerializer(settings.session_secret, salt="gw-session")
 
@@ -56,6 +57,10 @@ async def get_current_user(
 
     now = datetime.now(timezone.utc)
     if session.expires_at is not None and session.expires_at < now:
+        raise UnauthorizedError("Session expired")
+
+    # H2: Absolute session lifetime — no refresh can extend beyond this
+    if now - session.created_at > ABSOLUTE_SESSION_LIFETIME:
         raise UnauthorizedError("Session expired")
 
     if (

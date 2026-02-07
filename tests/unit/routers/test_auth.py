@@ -10,11 +10,6 @@ from backend.models.user import Session, User
 from tests.fixtures.oidc import MOCK_ISSUER, make_token_response
 
 
-def _utcnow_naive() -> datetime:
-    """Return current UTC time as a tz-naive datetime (for TIMESTAMP WITHOUT TIME ZONE)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
 def _signed_cookie(session_id: str) -> dict:
     return {SESSION_COOKIE: sign_session_id(session_id)}
 
@@ -34,7 +29,7 @@ class TestCallback:
     async def test_callback_creates_user_and_session(
         self, client, db_session, mock_oidc_exchange, mock_oidc_validate
     ):
-        session = Session(state="test-state", nonce="test-nonce", created_at=_utcnow_naive())
+        session = Session(state="test-state", nonce="test-nonce", created_at=datetime.now(timezone.utc))
         db_session.add(session)
         await db_session.flush()
 
@@ -71,7 +66,7 @@ class TestCallback:
         await db_session.flush()
 
         session = Session(
-            state="test-state-2", nonce="test-nonce-2", created_at=_utcnow_naive()
+            state="test-state-2", nonce="test-nonce-2", created_at=datetime.now(timezone.utc)
         )
         db_session.add(session)
         await db_session.flush()
@@ -134,7 +129,7 @@ class TestMe:
         session = Session(
             user_id=user.id,
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-            created_at=_utcnow_naive(),
+            created_at=datetime.now(timezone.utc),
         )
         db_session.add(session)
         await db_session.flush()
@@ -176,7 +171,7 @@ class TestMe:
         session = Session(
             user_id=user.id,
             expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
-            created_at=_utcnow_naive(),
+            created_at=datetime.now(timezone.utc),
         )
         db_session.add(session)
         await db_session.flush()
@@ -204,7 +199,7 @@ class TestStatus:
         session = Session(
             user_id=user.id,
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-            created_at=_utcnow_naive(),
+            created_at=datetime.now(timezone.utc),
         )
         db_session.add(session)
         await db_session.flush()
@@ -249,7 +244,7 @@ class TestStatus:
         session = Session(
             user_id=user.id,
             expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
-            created_at=_utcnow_naive(),
+            created_at=datetime.now(timezone.utc),
         )
         db_session.add(session)
         await db_session.flush()
@@ -278,7 +273,7 @@ class TestLogout:
         session = Session(
             user_id=user.id,
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-            created_at=_utcnow_naive(),
+            created_at=datetime.now(timezone.utc),
         )
         db_session.add(session)
         await db_session.flush()

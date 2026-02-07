@@ -10,10 +10,6 @@ from backend.models.role_template import RoleTemplate
 from backend.models.user import Session, User
 
 
-def _utcnow_naive() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
 async def _create_authenticated_user(db_session, *, is_admin: bool = False):
     """Helper to create a user with a valid session, returns (user, session_id)."""
     user = User(
@@ -29,7 +25,7 @@ async def _create_authenticated_user(db_session, *, is_admin: bool = False):
     session = Session(
         user_id=user.id,
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-        created_at=_utcnow_naive(),
+        created_at=datetime.now(timezone.utc),
     )
     db_session.add(session)
     await db_session.flush()

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
@@ -15,6 +15,7 @@ from backend.dependencies.auth import (
     sign_session_id,
     unsign_session_id,
 )
+from backend.dependencies.rate_limit import rate_limit
 from backend.exceptions import UnauthorizedError
 from backend.models.user import Session, User
 from backend.schemas.auth import AuthStatus, UserInfo
@@ -36,7 +37,15 @@ _COOKIE_OPTS = {
 
 
 @router.get("/login")
-async def login(db: AsyncSession = Depends(get_db)) -> RedirectResponse:
+async def login(
+    db: AsyncSession = Depends(get_db), _rl=Depends(rate_limit)
+) -> RedirectResponse:
+    # M1: Clean up orphaned pre-auth sessions older than MAX_STATE_AGE
+    cutoff = datetime.now(timezone.utc) - MAX_STATE_AGE
+    await db.execute(
+        delete(Session).where(Session.user_id.is_(None), Session.created_at < cutoff)
+    )
+
     state = secrets.token_hex(32)
     nonce = secrets.token_hex(32)
 
@@ -50,7 +59,11 @@ async def login(db: AsyncSession = Depends(get_db)) -> RedirectResponse:
 
 @router.get("/callback")
 async def callback(
-    code: str, state: str, request: Request, db: AsyncSession = Depends(get_db)
+    code: str,
+    state: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _rl=Depends(rate_limit),
 ) -> RedirectResponse:
     result = await db.execute(select(Session).where(Session.state == state))
     pre_auth_session = result.scalar_one_or_none()
@@ -65,9 +78,7 @@ async def callback(
         )
         raise UnauthorizedError("Invalid state parameter")
 
-    age = datetime.now(timezone.utc) - pre_auth_session.created_at.replace(
-        tzinfo=timezone.utc
-    )
+    age = datetime.now(timezone.utc) - pre_auth_session.created_at
     if age > MAX_STATE_AGE:
         await db.delete(pre_auth_session)
         await audit.log_event(

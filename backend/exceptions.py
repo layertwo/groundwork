@@ -29,7 +29,7 @@ class ForbiddenError(GroundworkError):
         super().__init__(message, status_code=403)
 
 
-class NotImplementedError(GroundworkError):
+class NotImplementedHttpError(GroundworkError):
     def __init__(self, message: str = "Not implemented"):
         super().__init__(message, status_code=501)
 
