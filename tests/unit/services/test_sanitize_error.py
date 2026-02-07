@@ -14,4 +14,4 @@ class TestSanitizeError:
 
     def test_generic_error_is_sanitized(self):
         exc = RuntimeError("boto3 credential error: secret key leaked")
-        assert _sanitize_error(exc) == "Provisioning failed — see server logs for details"
+        assert _sanitize_error(exc) == "Operation failed — see server logs for details"

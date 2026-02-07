@@ -190,3 +190,223 @@ async def _fetch_server_cert(hostname: str, port: int, ctx: ssl.SSLContext) -> b
     writer.close()
     await writer.wait_closed()
     return der_cert
+
+
+# ---------------------------------------------------------------------------
+# IAM role management (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+async def assume_groundwork_admin(aws_account_id: str) -> aioboto3.Session:
+    """Assume the admin management role in a target account.
+
+    Returns an aioboto3 Session configured with the temporary credentials.
+    """
+    session = get_session()
+    role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
+    async with session.client("sts") as sts:
+        assumed = await sts.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName="GroundworkRoleMgmt",
+        )
+    creds = assumed["Credentials"]
+    return aioboto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=settings.aws_region,
+    )
+
+
+def _build_trust_policy(
+    oidc_provider_arn: str,
+    allowed_groups: list[str],
+    allowed_users: list[str],
+) -> str:
+    """Build an IAM trust policy for OIDC federation.
+
+    Creates up to two statements: one for group-based access and one for
+    user-based access. Each is gated on the ``aud`` claim matching the
+    configured OIDC client ID.
+    """
+    # Extract issuer host from the OIDC provider ARN
+    # ARN format: arn:aws:iam::<account>:oidc-provider/<issuer_host>
+    issuer = oidc_provider_arn.split(":oidc-provider/", 1)[1]
+
+    statements: list[dict] = []
+
+    if allowed_groups:
+        statements.append(
+            {
+                "Sid": "AllowGroupAccess",
+                "Effect": "Allow",
+                "Principal": {"Federated": oidc_provider_arn},
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        f"{issuer}:aud": settings.oidc_client_id,
+                    },
+                    "ForAnyValue:StringEquals": {
+                        f"{issuer}:groups": allowed_groups,
+                    },
+                },
+            }
+        )
+
+    if allowed_users:
+        statements.append(
+            {
+                "Sid": "AllowUserAccess",
+                "Effect": "Allow",
+                "Principal": {"Federated": oidc_provider_arn},
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        f"{issuer}:aud": settings.oidc_client_id,
+                        f"{issuer}:sub": allowed_users,
+                    },
+                },
+            }
+        )
+
+    policy = {"Version": "2012-10-17", "Statement": statements}
+    return json.dumps(policy)
+
+
+async def create_iam_role(
+    aws_account_id: str,
+    role_name: str,
+    oidc_provider_arn: str,
+    allowed_groups: list[str],
+    allowed_users: list[str],
+    managed_policy_arns: list[str],
+    inline_policy: dict | None,
+    max_duration: int,
+) -> str:
+    """Create an IAM role in the target account with OIDC trust policy.
+
+    Returns the role ARN.
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+    trust_policy = _build_trust_policy(oidc_provider_arn, allowed_groups, allowed_users)
+
+    async with target_session.client("iam") as iam:
+        resp = await iam.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=trust_policy,
+            MaxSessionDuration=max_duration,
+        )
+        role_arn = resp["Role"]["Arn"]
+
+        for arn in managed_policy_arns:
+            await iam.attach_role_policy(RoleName=role_name, PolicyArn=arn)
+
+        if inline_policy is not None:
+            await iam.put_role_policy(
+                RoleName=role_name,
+                PolicyName="GroundworkInlinePolicy",
+                PolicyDocument=json.dumps(inline_policy),
+            )
+
+    logger.info("Created IAM role %s in account %s", role_name, aws_account_id)
+    return role_arn
+
+
+async def update_iam_role(
+    aws_account_id: str,
+    role_name: str,
+    oidc_provider_arn: str,
+    changes: dict,
+) -> None:
+    """Update an IAM role in the target account.
+
+    ``changes`` is a dict of field names to new values. Only fields present
+    in the dict are updated. When updating trust policy fields, the caller
+    must include both ``allowed_groups`` and ``allowed_users`` (with their
+    full current values) to avoid losing existing access.
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+
+    async with target_session.client("iam") as iam:
+        # Trust policy update if groups or users changed
+        if "allowed_groups" in changes or "allowed_users" in changes:
+            if "allowed_groups" not in changes or "allowed_users" not in changes:
+                raise ValueError(
+                    "Both allowed_groups and allowed_users must be provided "
+                    "when updating trust policy"
+                )
+            trust_policy = _build_trust_policy(
+                oidc_provider_arn,
+                changes["allowed_groups"],
+                changes["allowed_users"],
+            )
+            await iam.update_assume_role_policy(
+                RoleName=role_name,
+                PolicyDocument=trust_policy,
+            )
+
+        # Max session duration (derived from the larger of api/console duration)
+        if "api_session_duration" in changes or "console_session_duration" in changes:
+            max_dur = max(
+                changes.get("api_session_duration", 900),
+                changes.get("console_session_duration", 3600),
+            )
+            await iam.update_role(RoleName=role_name, MaxSessionDuration=max_dur)
+
+        # Managed policies
+        if "managed_policy_arns" in changes:
+            # Detach all existing managed policies
+            paginator = iam.get_paginator("list_attached_role_policies")
+            async for page in paginator.paginate(RoleName=role_name):
+                for policy in page.get("AttachedPolicies", []):
+                    await iam.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
+            # Attach new ones
+            for arn in changes["managed_policy_arns"]:
+                await iam.attach_role_policy(RoleName=role_name, PolicyArn=arn)
+
+        # Inline policy
+        if "inline_policy" in changes:
+            if changes["inline_policy"] is not None:
+                await iam.put_role_policy(
+                    RoleName=role_name,
+                    PolicyName="GroundworkInlinePolicy",
+                    PolicyDocument=json.dumps(changes["inline_policy"]),
+                )
+            else:
+                from botocore.exceptions import ClientError
+
+                try:
+                    await iam.delete_role_policy(
+                        RoleName=role_name,
+                        PolicyName="GroundworkInlinePolicy",
+                    )
+                except ClientError as e:
+                    if e.response["Error"]["Code"] != "NoSuchEntity":
+                        raise
+
+    logger.info("Updated IAM role %s in account %s", role_name, aws_account_id)
+
+
+async def delete_iam_role(aws_account_id: str, role_name: str) -> None:
+    """Delete an IAM role from the target account.
+
+    Detaches all managed policies and deletes inline policies first.
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+
+    async with target_session.client("iam") as iam:
+        # Detach managed policies
+        paginator = iam.get_paginator("list_attached_role_policies")
+        async for page in paginator.paginate(RoleName=role_name):
+            for policy in page.get("AttachedPolicies", []):
+                await iam.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
+
+        # Delete inline policies
+        paginator = iam.get_paginator("list_role_policies")
+        async for page in paginator.paginate(RoleName=role_name):
+            for policy_name in page.get("PolicyNames", []):
+                await iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+
+        await iam.delete_role(RoleName=role_name)
+
+    logger.info("Deleted IAM role %s from account %s", role_name, aws_account_id)

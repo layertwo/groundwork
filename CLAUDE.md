@@ -47,7 +47,7 @@ All 6 models are re-exported from `backend/models/__init__.py` (required for Ale
 
 **Routers** are currently 501 stubs. Each returns `Response(status_code=501, content='{"detail":"Not implemented"}')`. Implementation is planned across 5 phases (see `docs/plans/`).
 
-**Services** (planned): `backend/services/` will contain `oidc.py` (OIDC auth), `aws.py` (IAM/STS/Control Tower), `jobs.py` (background task executor), `audit.py` (audit logging).
+**Services** (planned): `backend/services/` will contain `oidc.py` (OIDC auth), `aws.py` (IAM/STS/Organizations), `jobs.py` (background task executor), `audit.py` (audit logging).
 
 **Exception hierarchy:** `GroundworkError` base class with `NotFoundError(404)`, `ConflictError(409)`, `ForbiddenError(403)`. Handlers registered in `main.py` return `{"detail": message}`.
 
@@ -58,7 +58,7 @@ All 6 models are re-exported from `backend/models/__init__.py` (required for Ale
 Detailed plans in `docs/plans/`. Summary:
 
 1. **Phase 1 -- Auth**: OIDC login flow, session management, `get_current_user`/`get_current_admin` dependencies, role templates model + CRUD, audit helper
-2. **Phase 2 -- Account Provisioning**: Control Tower account creation, OIDC provider + admin role bootstrap, job executor, account/job endpoints
+2. **Phase 2 -- Account Provisioning**: Organizations account creation, OIDC provider + admin role bootstrap, job executor, account/job endpoints
 3. **Phase 3 -- Role Management**: IAM role CRUD (create/update/delete), trust policies with aud+groups+users conditions, role templates
 4. **Phase 4 -- Role Assumption**: `AssumeRoleWithWebIdentity`, console federation URLs, token refresh, dual-layer access control
 5. **Phase 5 -- React UI**: Vite + React + TypeScript frontend, auth context, account/role/job pages
