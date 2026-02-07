@@ -19,6 +19,11 @@ class ConflictError(GroundworkError):
         super().__init__(message, status_code=409)
 
 
+class UnauthorizedError(GroundworkError):
+    def __init__(self, message: str = "Not authenticated"):
+        super().__init__(message, status_code=401)
+
+
 class ForbiddenError(GroundworkError):
     def __init__(self, message: str = "Forbidden"):
         super().__init__(message, status_code=403)

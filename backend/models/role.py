@@ -1,7 +1,8 @@
-from typing import Optional
+from typing import Any, Optional
 import uuid
 
 from sqlalchemy import ARRAY, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -22,7 +23,17 @@ class Role(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     allowed_groups: Mapped[list[str]] = mapped_column(
         ARRAY(String), nullable=False, server_default="{}"
     )
-    max_session_duration: Mapped[int] = mapped_column(
+    managed_policy_arns: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, server_default="{}"
+    )
+    inline_policy: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    allowed_users: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, server_default="{}"
+    )
+    api_session_duration: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=900, server_default="900"
+    )
+    console_session_duration: Mapped[int] = mapped_column(
         Integer, nullable=False, default=3600, server_default="3600"
     )
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
