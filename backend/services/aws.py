@@ -4,15 +4,25 @@ import hashlib
 import json
 import logging
 import ssl
-from urllib.parse import urlparse
+from datetime import datetime
+from typing import TypedDict
+from urllib.parse import quote, urlparse
 
 import aioboto3
+import aiohttp
 
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
 _session: aioboto3.Session | None = None
+
+
+class STSCredentials(TypedDict):
+    access_key_id: str
+    secret_access_key: str
+    session_token: str
+    expiration: datetime
 
 
 def get_session() -> aioboto3.Session:
@@ -410,3 +420,82 @@ async def delete_iam_role(aws_account_id: str, role_name: str) -> None:
         await iam.delete_role(RoleName=role_name)
 
     logger.info("Deleted IAM role %s from account %s", role_name, aws_account_id)
+
+
+# ---------------------------------------------------------------------------
+# Role assumption (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+async def assume_role_with_web_identity(
+    role_arn: str,
+    id_token: str,
+    session_duration: int,
+    session_name: str,
+) -> STSCredentials:
+    """Assume an IAM role using an OIDC id_token via STS.
+
+    Returns STSCredentials with access_key_id, secret_access_key,
+    session_token, and expiration.
+    """
+    session = get_session()
+    async with session.client("sts") as sts:
+        resp = await sts.assume_role_with_web_identity(
+            RoleArn=role_arn,
+            RoleSessionName=session_name,
+            WebIdentityToken=id_token,
+            DurationSeconds=session_duration,
+        )
+    creds = resp["Credentials"]
+    return STSCredentials(
+        access_key_id=creds["AccessKeyId"],
+        secret_access_key=creds["SecretAccessKey"],
+        session_token=creds["SessionToken"],
+        expiration=creds["Expiration"],
+    )
+
+
+async def get_console_url(
+    credentials: STSCredentials,
+    console_session_duration: int,
+    issuer: str,
+) -> str:
+    """Build an AWS Console federation login URL from temporary credentials.
+
+    Calls the AWS federation endpoint to obtain a signin token, then constructs
+    a login URL that grants console access.
+    """
+    session_json = json.dumps(
+        {
+            "sessionId": credentials["access_key_id"],
+            "sessionKey": credentials["secret_access_key"],
+            "sessionToken": credentials["session_token"],
+        }
+    )
+
+    federation_url = "https://signin.aws.amazon.com/federation"
+
+    # Step 1: Get signin token
+    async with aiohttp.ClientSession() as http:
+        async with http.get(
+            federation_url,
+            params={
+                "Action": "getSigninToken",
+                "SessionDuration": str(console_session_duration),
+                "Session": session_json,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json(content_type=None)
+            signin_token = data["SigninToken"]
+
+    # Step 2: Construct login URL
+    login_url = (
+        f"{federation_url}"
+        f"?Action=login"
+        f"&Issuer={quote(issuer, safe='')}"
+        f"&Destination={quote('https://console.aws.amazon.com/', safe='')}"
+        f"&SigninToken={quote(signin_token, safe='')}"
+    )
+
+    return login_url

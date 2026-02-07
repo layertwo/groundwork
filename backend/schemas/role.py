@@ -140,3 +140,8 @@ class AssumeRoleResponse(BaseModel):
     secret_access_key: str
     session_token: str
     expiration: datetime
+
+
+class ConsoleUrlResponse(BaseModel):
+    console_url: str
+    expiration: datetime
