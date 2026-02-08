@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from backend.models.account import Account
 from backend.models.job import Job
 from backend.models.user import User
-from backend.services.jobs import run_provision_account
+from backend.services.jobs import run_bootstrap_account, run_provision_account
 
 
 async def _create_user(db_session, *, is_admin: bool = True):
@@ -196,3 +196,95 @@ class TestProvisionJobFailure:
         assert account.status == "failed"
         assert "Operation failed" in account.error_message
         assert job.status == "failed"
+
+
+class TestBootstrapJobSuccess:
+    async def test_bootstrap_sets_account_active_with_oidc_arn(self, db_session):
+        """Successful bootstrap marks account active and sets oidc_provider_arn."""
+        user = await _create_user(db_session)
+
+        account = Account(
+            account_name="Bootstrap Test",
+            account_email=f"bs-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            aws_account_id="222222222222",
+            status="active",
+            created_by=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        job = Job(
+            account_id=account.id,
+            job_type="bootstrap_account",
+            status="pending",
+            started_by=user.id,
+        )
+        db_session.add(job)
+        await db_session.flush()
+
+        with (
+            patch(
+                "backend.services.jobs.aws.bootstrap_account",
+                new_callable=AsyncMock,
+                return_value={
+                    "oidc_provider_arn": (
+                        "arn:aws:iam::222222222222:oidc-provider/idp.example.com"
+                    ),
+                    "admin_role_arn": "arn:aws:iam::222222222222:role/GroundworkAdmin",
+                },
+            ),
+        ):
+            await run_bootstrap_account(job, db_session)
+
+        await db_session.refresh(account)
+        await db_session.refresh(job)
+
+        assert account.status == "active"
+        assert (
+            account.oidc_provider_arn == "arn:aws:iam::222222222222:oidc-provider/idp.example.com"
+        )
+        assert job.status == "completed"
+        assert job.completed_at is not None
+
+
+class TestBootstrapJobFailure:
+    async def test_bootstrap_failure_marks_job_and_account_failed(self, db_session):
+        """Bootstrap failure marks both job and account as failed."""
+        user = await _create_user(db_session)
+
+        account = Account(
+            account_name="Bootstrap Fail",
+            account_email=f"bsfail-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            aws_account_id="222222222222",
+            status="active",
+            created_by=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        job = Job(
+            account_id=account.id,
+            job_type="bootstrap_account",
+            status="pending",
+            started_by=user.id,
+        )
+        db_session.add(job)
+        await db_session.flush()
+
+        with patch(
+            "backend.services.jobs.aws.bootstrap_account",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Bootstrap stack deployment failed for account 222222222222"),
+        ):
+            await run_bootstrap_account(job, db_session)
+
+        await db_session.refresh(account)
+        await db_session.refresh(job)
+
+        assert account.status == "failed"
+        assert job.status == "failed"
+        assert job.completed_at is not None

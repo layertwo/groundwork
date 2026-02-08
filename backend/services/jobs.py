@@ -36,6 +36,8 @@ async def execute_job(job_id: uuid.UUID) -> None:
 
             handlers = {
                 "provision_account": run_provision_account,
+                "bootstrap_account": run_bootstrap_account,
+                "sync_accounts": run_sync_accounts,
                 "create_role": run_create_role,
                 "update_role": run_update_role,
                 "delete_role": run_delete_role,
@@ -174,6 +176,78 @@ async def run_provision_account(job: Job, db: AsyncSession) -> None:
             detail={"error": safe_msg},
         )
         await db.commit()
+
+
+async def run_bootstrap_account(job: Job, db: AsyncSession) -> None:
+    """Bootstrap a single account via StackSet deployment.
+
+    Deploys the OIDC provider + admin role, then marks the account active.
+    """
+    now = datetime.now(timezone.utc)
+    job.status = "in_progress"
+    job.started_at = now
+    db.add(job)
+    await db.commit()
+
+    result = await db.execute(select(Account).where(Account.id == job.account_id))
+    account = result.scalar_one_or_none()
+    if account is None:
+        job.status = "failed"
+        job.error_message = "Associated account not found"
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+        await db.commit()
+        return
+
+    try:
+        bootstrap_result = await aws.bootstrap_account(
+            account.aws_account_id, ou_id=account.organizational_unit
+        )
+        account.oidc_provider_arn = bootstrap_result["oidc_provider_arn"]
+        account.status = "active"
+        db.add(account)
+
+        job.status = "completed"
+        job.completed_at = datetime.now(timezone.utc)
+        job.result = bootstrap_result
+        db.add(job)
+
+        await log_event(
+            db,
+            action="account.bootstrap.completed",
+            user_id=job.started_by,
+            resource_type="account",
+            resource_id=str(account.id),
+            detail={"aws_account_id": account.aws_account_id},
+        )
+        await db.commit()
+
+    except Exception as exc:
+        logger.exception("Bootstrap failed for account %s", account.id)
+        safe_msg = _sanitize_error(exc)
+        account.status = "failed"
+        account.error_message = safe_msg
+        db.add(account)
+
+        job.status = "failed"
+        job.error_message = safe_msg
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+
+        await log_event(
+            db,
+            action="account.bootstrap.failed",
+            user_id=job.started_by,
+            resource_type="account",
+            resource_id=str(account.id),
+            detail={"error": safe_msg},
+        )
+        await db.commit()
+
+
+async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
+    """Placeholder -- implemented in Task 5."""
+    raise NotImplementedError("sync_accounts not yet implemented")
 
 
 async def run_create_role(job: Job, db: AsyncSession) -> None:
