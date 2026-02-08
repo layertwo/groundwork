@@ -63,8 +63,43 @@ export function listRoles(): Promise<RoleResponse[]> {
   return apiFetch<RoleResponse[]>('/api/roles')
 }
 
+export interface RoleTemplateCreate {
+  name: string
+  description?: string | null
+  managed_policy_arns: string[]
+}
+
+export interface RoleTemplateUpdate {
+  name?: string
+  description?: string | null
+  managed_policy_arns?: string[]
+}
+
 export function getRoleTemplates(): Promise<RoleTemplateResponse[]> {
   return apiFetch<RoleTemplateResponse[]>('/api/roles/templates')
+}
+
+export function createRoleTemplate(data: RoleTemplateCreate): Promise<RoleTemplateResponse> {
+  return apiFetch<RoleTemplateResponse>('/api/roles/templates', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateRoleTemplate(
+  templateId: string,
+  data: RoleTemplateUpdate,
+): Promise<RoleTemplateResponse> {
+  return apiFetch<RoleTemplateResponse>(`/api/roles/templates/${templateId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export function deleteRoleTemplate(templateId: string): Promise<void> {
+  return apiFetch<void>(`/api/roles/templates/${templateId}`, {
+    method: 'DELETE',
+  })
 }
 
 export function createRole(

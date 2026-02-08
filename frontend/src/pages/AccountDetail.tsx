@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +16,7 @@ import { getAccount } from '@/api/accounts'
 import { listRoles, assumeRole, getConsoleUrl, deleteRole } from '@/api/roles'
 import { ApiError } from '@/api/client'
 import { listJobs } from '@/api/jobs'
+import SearchInput from '@/components/SearchInput'
 import CredentialsDialog from '@/components/CredentialsDialog'
 import type { AssumeRoleResponse } from '@/api/roles'
 
@@ -57,6 +58,19 @@ export default function AccountDetail() {
   })
 
   const roles = allRoles?.filter((r) => r.account_id === id) ?? []
+
+  const [roleSearch, setRoleSearch] = useState('')
+  const filteredRoles = useMemo(() => {
+    const q = roleSearch.toLowerCase()
+    if (!q) return roles
+    return roles.filter(
+      (r) =>
+        r.role_name.toLowerCase().includes(q) ||
+        (r.description ?? '').toLowerCase().includes(q) ||
+        r.allowed_groups.some((g) => g.toLowerCase().includes(q)) ||
+        r.allowed_users.some((u) => u.toLowerCase().includes(q))
+    )
+  }, [roles, roleSearch])
 
   const isProvisioning = account?.status === 'pending' || account?.status === 'provisioning'
 
@@ -170,8 +184,16 @@ export default function AccountDetail() {
           )}
         </div>
 
+        <SearchInput
+          placeholder="Search roles..."
+          value={roleSearch}
+          onChange={(e) => setRoleSearch(e.target.value)}
+        />
+
         {roles.length === 0 ? (
           <div className="text-sm text-muted-foreground">No roles on this account.</div>
+        ) : filteredRoles.length === 0 ? (
+          <div className="text-sm text-muted-foreground">No roles match your search.</div>
         ) : (
           <Table>
             <TableHeader>
@@ -183,7 +205,7 @@ export default function AccountDetail() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {roles.map((role) => (
+              {filteredRoles.map((role) => (
                 <TableRow key={role.id}>
                   <TableCell className="font-medium">
                     {role.role_name}
