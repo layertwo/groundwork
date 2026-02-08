@@ -246,8 +246,144 @@ async def run_bootstrap_account(job: Job, db: AsyncSession) -> None:
 
 
 async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
-    """Placeholder -- implemented in Task 5."""
-    raise NotImplementedError("sync_accounts not yet implemented")
+    """Discover org accounts, import/reconcile, and bootstrap active ones.
+
+    1. Ensure bootstrap StackSet exists.
+    2. List all org accounts (paginated).
+    3. For each account: import new, reconcile existing, skip/mark suspended.
+    4. Spawn bootstrap_account jobs for accounts needing deployment.
+    """
+    now = datetime.now(timezone.utc)
+    job.status = "in_progress"
+    job.started_at = now
+    db.add(job)
+    await db.commit()
+
+    try:
+        # Step 1: Ensure StackSet exists
+        await aws.ensure_bootstrap_stackset()
+
+        # Step 2: Discover accounts
+        org_accounts = await aws.list_org_accounts()
+
+        # Build lookup of existing accounts by aws_account_id
+        result = await db.execute(select(Account).where(Account.aws_account_id.isnot(None)))
+        existing_map: dict[str, Account] = {a.aws_account_id: a for a in result.scalars().all()}
+
+        counts = {
+            "accounts_found": len(org_accounts),
+            "imported": 0,
+            "updated": 0,
+            "bootstrap_triggered": 0,
+            "skipped_suspended": 0,
+        }
+
+        for org_acct in org_accounts:
+            aws_id = org_acct["aws_account_id"]
+            aws_status = org_acct["status"]
+            ou_id = await aws.get_account_ou(aws_id)
+
+            if aws_id not in existing_map:
+                # New account -- import
+                account = Account(
+                    aws_account_id=aws_id,
+                    account_name=org_acct["name"],
+                    account_email=org_acct["email"],
+                    organizational_unit=ou_id,
+                    sso_user_email=org_acct["email"],
+                    status="active",
+                    aws_status=aws_status,
+                    created_by=job.started_by,
+                )
+                db.add(account)
+                await db.flush()
+                counts["imported"] += 1
+
+                if aws_status != "ACTIVE":
+                    counts["skipped_suspended"] += 1
+                else:
+                    # Spawn bootstrap job
+                    bootstrap_job = Job(
+                        account_id=account.id,
+                        job_type="bootstrap_account",
+                        status="pending",
+                        started_by=job.started_by,
+                    )
+                    db.add(bootstrap_job)
+                    await db.flush()
+                    asyncio.create_task(execute_job(bootstrap_job.id))
+                    counts["bootstrap_triggered"] += 1
+            else:
+                # Existing account -- reconcile
+                account = existing_map[aws_id]
+                changed = False
+
+                if account.account_name != org_acct["name"]:
+                    account.account_name = org_acct["name"]
+                    changed = True
+                if account.account_email != org_acct["email"]:
+                    account.account_email = org_acct["email"]
+                    changed = True
+                if account.organizational_unit != ou_id:
+                    account.organizational_unit = ou_id
+                    changed = True
+                if account.aws_status != aws_status:
+                    account.aws_status = aws_status
+                    changed = True
+
+                if changed:
+                    db.add(account)
+                    counts["updated"] += 1
+
+                # Trigger bootstrap if needed
+                needs_bootstrap = aws_status == "ACTIVE" and (
+                    not account.oidc_provider_arn or account.status == "failed"
+                )
+                if needs_bootstrap:
+                    bootstrap_job = Job(
+                        account_id=account.id,
+                        job_type="bootstrap_account",
+                        status="pending",
+                        started_by=job.started_by,
+                    )
+                    db.add(bootstrap_job)
+                    await db.flush()
+                    asyncio.create_task(execute_job(bootstrap_job.id))
+                    counts["bootstrap_triggered"] += 1
+
+                if aws_status != "ACTIVE":
+                    counts["skipped_suspended"] += 1
+
+        job.status = "completed"
+        job.completed_at = datetime.now(timezone.utc)
+        job.result = counts
+        db.add(job)
+
+        await log_event(
+            db,
+            action="accounts.sync.completed",
+            user_id=job.started_by,
+            resource_type="account",
+            detail=counts,
+        )
+        await db.commit()
+
+    except Exception as exc:
+        logger.exception("Sync accounts failed")
+        safe_msg = _sanitize_error(exc)
+        job.status = "failed"
+        job.error_message = safe_msg
+        job.completed_at = datetime.now(timezone.utc)
+        db.add(job)
+
+        await log_event(
+            db,
+            action="accounts.sync.failed",
+            user_id=job.started_by,
+            resource_type="account",
+            detail={"error": safe_msg},
+        )
+        await db.commit()
 
 
 async def run_create_role(job: Job, db: AsyncSession) -> None:
