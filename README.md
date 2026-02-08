@@ -180,9 +180,7 @@ All settings use the `GW_` prefix. Optional settings with their defaults:
 | `GW_DB_POOL_SIZE` | `20` | Connection pool size |
 | `GW_DB_MAX_OVERFLOW` | `10` | Max overflow connections |
 | `GW_DB_POOL_RECYCLE` | `1800` | Connection recycle interval (seconds) |
-| `GW_AWS_GROUNDWORK_ACCOUNT_ID` | _(required)_ | 12-digit AWS account ID of the dedicated Groundwork account |
 | `GW_AWS_GROUNDWORK_ROLE_NAME` | `GroundworkStackSetRole` | IAM role to assume in the Groundwork account |
-| `GW_AWS_ORG_ROOT_ID` | _(required)_ | Organization root ID (e.g., `r-abc1`) for StackSet deployment |
 | `GW_ADMIN_ROLE_NAME` | `GroundworkAdmin-DO-NOT-DELETE` | Name of the management role created in member accounts |
 | `GW_APP_NAME` | `Groundwork` | Application display name |
 | `GW_DEBUG` | `false` | Enable debug mode (CORS for localhost:5173) |
@@ -208,7 +206,7 @@ The API is now available at `http://localhost:8000`. The frontend (if built) is 
 Quick setup for local evaluation and development:
 
 ```bash
-git clone https://github.com/your-org/groundwork.git && cd groundwork
+git clone https://github.com/layertwo/groundwork.git && cd groundwork
 python3.14 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 docker compose up -d db

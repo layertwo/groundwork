@@ -24,7 +24,6 @@ class Settings(BaseSettings):
 
     # AWS
     aws_region: str = "us-east-1"
-    aws_portfolio_id: str = ""
     aws_management_account_id: str = ""
     aws_groundwork_account_id: str = Field(default="", pattern=r"^$|^[0-9]{12}$")
     aws_groundwork_role_name: str = Field(
