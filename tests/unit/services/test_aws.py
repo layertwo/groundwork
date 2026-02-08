@@ -1,5 +1,6 @@
 """Tests for AWS service layer using aiobotocore AioStubber."""
 
+import json
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
@@ -217,3 +218,61 @@ class TestBootstrapAccount:
         )
         sts_stubber.assert_no_pending_responses()
         iam_stubber.assert_no_pending_responses()
+
+
+class TestBuildBootstrapTemplate:
+    def test_template_has_required_resources(self):
+        body = aws._build_bootstrap_template(
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="gw-client",
+            oidc_thumbprint="a" * 40,
+            groundwork_account_id="222233334444",
+            admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
+        )
+        parsed = json.loads(body)
+        assert parsed["AWSTemplateFormatVersion"] == "2010-09-09"
+        assert "OidcProvider" in parsed["Resources"]
+        assert "AdminRole" in parsed["Resources"]
+
+    def test_oidc_provider_config(self):
+        body = aws._build_bootstrap_template(
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="gw-client",
+            oidc_thumbprint="a" * 40,
+            groundwork_account_id="222233334444",
+            admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
+        )
+        parsed = json.loads(body)
+        oidc = parsed["Resources"]["OidcProvider"]["Properties"]
+        assert oidc["Url"] == "https://idp.example.com"
+        assert oidc["ClientIdList"] == ["gw-client"]
+        assert oidc["ThumbprintList"] == ["a" * 40]
+
+    def test_admin_role_trusts_groundwork_account(self):
+        body = aws._build_bootstrap_template(
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="gw-client",
+            oidc_thumbprint="a" * 40,
+            groundwork_account_id="222233334444",
+            admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
+        )
+        parsed = json.loads(body)
+        role = parsed["Resources"]["AdminRole"]["Properties"]
+        assert role["RoleName"] == "GroundworkAdmin-DO-NOT-DELETE"
+        assert role["MaxSessionDuration"] == 3600
+        trust = role["AssumeRolePolicyDocument"]
+        assert trust["Statement"][0]["Principal"]["AWS"] == "arn:aws:iam::222233334444:root"
+        assert trust["Statement"][0]["Action"] == "sts:AssumeRole"
+        assert "arn:aws:iam::aws:policy/AdministratorAccess" in role["ManagedPolicyArns"]
+
+    def test_template_has_outputs(self):
+        body = aws._build_bootstrap_template(
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="gw-client",
+            oidc_thumbprint="a" * 40,
+            groundwork_account_id="222233334444",
+            admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
+        )
+        parsed = json.loads(body)
+        assert "OidcProviderArn" in parsed["Outputs"]
+        assert "AdminRoleArn" in parsed["Outputs"]

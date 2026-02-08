@@ -499,3 +499,72 @@ async def get_console_url(
     )
 
     return login_url
+
+
+# ---------------------------------------------------------------------------
+# CloudFormation template builder (Phase 2 — StackSet bootstrap)
+# ---------------------------------------------------------------------------
+
+
+def _build_bootstrap_template(
+    oidc_issuer_url: str,
+    oidc_client_id: str,
+    oidc_thumbprint: str,
+    groundwork_account_id: str,
+    admin_role_name: str = "GroundworkAdmin-DO-NOT-DELETE",
+) -> str:
+    """Build a CloudFormation template for bootstrapping member accounts.
+
+    Generates a template that creates:
+    - An OIDC identity provider pointing at the configured issuer
+    - An admin management role trusted by the Groundwork service account
+
+    Returns a JSON string suitable for passing as ``TemplateBody``
+    to CloudFormation ``CreateStackSet``.
+    """
+    template: dict = {
+        "AWSTemplateFormatVersion": "2010-09-09",
+        "Description": "Groundwork bootstrap — OIDC provider and admin role for member accounts",
+        "Resources": {
+            "OidcProvider": {
+                "Type": "AWS::IAM::OIDCProvider",
+                "Properties": {
+                    "Url": oidc_issuer_url,
+                    "ClientIdList": [oidc_client_id],
+                    "ThumbprintList": [oidc_thumbprint],
+                },
+            },
+            "AdminRole": {
+                "Type": "AWS::IAM::Role",
+                "Properties": {
+                    "RoleName": admin_role_name,
+                    "Description": "Groundwork admin management role — DO NOT DELETE",
+                    "MaxSessionDuration": 3600,
+                    "AssumeRolePolicyDocument": {
+                        "Version": "2012-10-17",
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Principal": {"AWS": f"arn:aws:iam::{groundwork_account_id}:root"},
+                                "Action": "sts:AssumeRole",
+                            }
+                        ],
+                    },
+                    "ManagedPolicyArns": [
+                        "arn:aws:iam::aws:policy/AdministratorAccess",
+                    ],
+                },
+            },
+        },
+        "Outputs": {
+            "OidcProviderArn": {
+                "Description": "ARN of the OIDC identity provider",
+                "Value": {"Ref": "OidcProvider"},
+            },
+            "AdminRoleArn": {
+                "Description": "ARN of the Groundwork admin role",
+                "Value": {"Fn::GetAtt": ["AdminRole", "Arn"]},
+            },
+        },
+    }
+    return json.dumps(template)
