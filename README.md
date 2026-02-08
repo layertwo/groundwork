@@ -27,7 +27,7 @@ Groundwork lets your team provision AWS accounts on demand and manage who can ac
 ## Prerequisites
 
 - **AWS Organization** — Groundwork creates accounts via AWS Organizations, so you need an existing organization.
-- **Dedicated Groundwork AWS account** — A member account registered as a **delegated administrator for CloudFormation StackSets**, with an **Organizations delegation policy** granting account provisioning permissions. See [delegation policy setup](docs/deployment/delegation-policy.md).
+- **Dedicated Groundwork AWS account** — A member account registered as a **delegated administrator for CloudFormation StackSets**, with a **cross-account role in the management account** (`GroundworkManagementRole`) granting Organizations API access. See [AWS setup](docs/deployment/aws-setup.md).
 - **OIDC identity provider** — Any OpenID Connect provider that supports the Authorization Code flow (Okta, Entra ID, Google Workspace, Keycloak, etc.).
 - **PostgreSQL 16+** — Used for storing accounts, roles, sessions, and audit logs.
 - **Python 3.14+** — Required for the backend.
@@ -36,10 +36,10 @@ Groundwork lets your team provision AWS accounts on demand and manage who can ac
 
 ### 1. AWS permissions
 
-Groundwork runs in a **dedicated Groundwork AWS account** that has two delegated capabilities:
+Groundwork runs in a **dedicated Groundwork AWS account** with two capabilities:
 
 1. **CloudFormation StackSets delegated administrator** — for bootstrapping member accounts
-2. **Organizations delegation policy** — for creating and managing accounts
+2. **Management account role** (`GroundworkManagementRole`) — a cross-account IAM role in the management account that grants Organizations API access
 
 #### Step 1: Register as delegated administrator for CloudFormation StackSets
 
@@ -51,55 +51,28 @@ aws organizations register-delegated-administrator \
   --service-principal member.org.stacksets.cloudformation.amazonaws.com
 ```
 
-#### Step 2: Create an Organizations delegation policy
+#### Step 2: Create the management account role (`GroundworkManagementRole`)
 
-This grants the Groundwork account permission to call Organizations APIs (CreateAccount, MoveAccount, etc.) without management account credentials. Run from the **management account**:
+Create an IAM role in the **management account** that the Groundwork account can assume. This provides Organizations API access without requiring management account credentials at runtime.
 
-```bash
-aws organizations put-resource-policy \
-  --content file://delegation-policy.json
-```
-
-Replace `GROUNDWORK_ACCOUNT_ID`, `MANAGEMENT_ACCOUNT_ID`, and `ORGANIZATION_ID` in the policy below:
+**Trust policy** (allows the Groundwork account to assume this role):
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "GroundworkOrganizationsAccess",
       "Effect": "Allow",
       "Principal": {
         "AWS": "arn:aws:iam::GROUNDWORK_ACCOUNT_ID:root"
       },
-      "Action": [
-        "organizations:CreateAccount",
-        "organizations:DescribeCreateAccountStatus",
-        "organizations:ListCreateAccountStatus",
-        "organizations:MoveAccount",
-        "organizations:ListRoots",
-        "organizations:ListAccounts",
-        "organizations:ListAccountsForParent",
-        "organizations:ListOrganizationalUnitsForParent",
-        "organizations:ListChildren",
-        "organizations:DescribeAccount",
-        "organizations:DescribeOrganization",
-        "organizations:DescribeOrganizationalUnit"
-      ],
-      "Resource": [
-        "arn:aws:organizations::MANAGEMENT_ACCOUNT_ID:account/ORGANIZATION_ID/*",
-        "arn:aws:organizations::MANAGEMENT_ACCOUNT_ID:ou/ORGANIZATION_ID/*",
-        "arn:aws:organizations::MANAGEMENT_ACCOUNT_ID:root/ORGANIZATION_ID/*",
-        "arn:aws:organizations::MANAGEMENT_ACCOUNT_ID:organization/ORGANIZATION_ID"
-      ]
+      "Action": "sts:AssumeRole"
     }
   ]
 }
 ```
 
-#### Step 3: Create an IAM role for the Groundwork application
-
-The Groundwork application needs an IAM role in the Groundwork account with permissions for Organizations (via delegation), CloudFormation StackSets, and assuming the admin role in member accounts:
+**Permissions policy** (scoped Organizations access):
 
 ```json
 {
@@ -123,7 +96,19 @@ The Groundwork application needs an IAM role in the Groundwork account with perm
         "organizations:DescribeOrganizationalUnit"
       ],
       "Resource": "*"
-    },
+    }
+  ]
+}
+```
+
+#### Step 3: Create the Groundwork account role
+
+The Groundwork application needs an IAM role in the **Groundwork account** with permissions for CloudFormation StackSets, assuming the management account role, and assuming the admin role in member accounts:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
     {
       "Sid": "CloudFormationStackSets",
       "Effect": "Allow",
@@ -137,6 +122,12 @@ The Groundwork application needs an IAM role in the Groundwork account with perm
       "Resource": "*"
     },
     {
+      "Sid": "AssumeManagementRole",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::MANAGEMENT_ACCOUNT_ID:role/GroundworkManagementRole"
+    },
+    {
       "Sid": "AssumeAdminRoleInMemberAccounts",
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
@@ -148,15 +139,15 @@ The Groundwork application needs an IAM role in the Groundwork account with perm
 
 The trust policy for this role depends on how you deploy Groundwork (ECS task role, EC2 instance profile, Kubernetes IRSA, etc.).
 
-See [docs/deployment/delegation-policy.md](docs/deployment/delegation-policy.md) for more detail on how the delegation policy and IAM policy work together.
+See [docs/deployment/aws-setup.md](docs/deployment/aws-setup.md) for full setup details.
 
 #### How it works
 
-| Step | Account | What happens |
+| Step | Account / Role | What happens |
 |---|---|---|
-| Account creation | Groundwork (via delegation policy) | Organizations API creates the account and moves it to a target OU |
-| Account bootstrap | Groundwork (delegated admin) | A service-managed CloudFormation StackSet auto-deploys an OIDC provider and management role to all member accounts |
-| Role management | Groundwork → member account | Groundwork assumes `GroundworkAdmin-DO-NOT-DELETE` in the member account to create/update/delete user-facing IAM roles |
+| Account creation | Management account (via `GroundworkManagementRole`) | Groundwork assumes the management role and calls Organizations APIs to create the account and move it to a target OU |
+| Account bootstrap | Groundwork account (delegated admin) | A service-managed CloudFormation StackSet auto-deploys an OIDC provider and management role to all member accounts |
+| Role management | Groundwork account -> member account | Groundwork assumes `GroundworkAdmin-DO-NOT-DELETE` in the member account to create/update/delete user-facing IAM roles |
 
 **What Groundwork deploys via StackSets:** A service-managed StackSet with auto-deploy creates two resources in every member account:
 
@@ -214,6 +205,7 @@ GW_OIDC_REDIRECT_URI=https://your-groundwork-url/api/auth/callback
 
 # AWS — from step 1
 GW_AWS_REGION=us-east-1
+GW_AWS_MANAGEMENT_ROLE_ARN=arn:aws:iam::111122223333:role/GroundworkManagementRole
 GW_AWS_GROUNDWORK_ACCOUNT_ID=444455556666
 GW_AWS_ORG_ROOT_ID=r-xxxx
 
@@ -226,6 +218,7 @@ All settings use the `GW_` prefix. Optional settings with their defaults:
 
 | Setting | Default | Description |
 |---|---|---|
+| `GW_AWS_MANAGEMENT_ROLE_ARN` | — | ARN of the `GroundworkManagementRole` in the management account |
 | `GW_DB_POOL_SIZE` | `20` | Connection pool size |
 | `GW_DB_MAX_OVERFLOW` | `10` | Max overflow connections |
 | `GW_DB_POOL_RECYCLE` | `1800` | Connection recycle interval (seconds) |

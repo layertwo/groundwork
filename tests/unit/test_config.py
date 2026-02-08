@@ -4,6 +4,12 @@ from pydantic import ValidationError
 from backend.config import Settings
 
 
+class TestManagementRoleConfig:
+    def test_management_role_arn_default(self):
+        s = Settings(session_secret="test")
+        assert s.aws_management_role_arn == ""
+
+
 class TestStackSetConfig:
     def test_groundwork_account_id_default(self):
         s = Settings(session_secret="test")

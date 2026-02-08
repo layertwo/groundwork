@@ -50,7 +50,8 @@ All 7 models are re-exported from `backend/models/__init__.py` (required for Ale
 **Services:** `backend/services/` contains `oidc.py` (OIDC auth), `aws.py` (IAM/STS/Organizations/CloudFormation StackSets), `jobs.py` (background task executor), `audit.py` (audit logging), `crypto.py` (Fernet token encryption).
 
 **AWS service layer (`backend/services/aws.py`):** Uses a dedicated Groundwork AWS account (delegated administrator for CloudFormation StackSets) rather than the management account for bootstrap operations. Key functions:
-- `get_session()` — default session (Groundwork account); used for all AWS API calls (Organizations via delegation policy, StackSets via `CallAs="DELEGATED_ADMIN"`, STS for role assumption)
+- `get_session()` — default session (Groundwork account); used for StackSets via `CallAs="DELEGATED_ADMIN"`, STS for role assumption, and as the base session for `get_management_session()`
+- `get_management_session()` — assumes role in management account for Organizations API calls (CreateAccount, MoveAccount, etc.)
 - `ensure_bootstrap_stackset()` — idempotent creation of service-managed StackSet with auto-deploy
 - `bootstrap_account()` — polls StackSet deployment status, triggers manual deploy if needed
 - `assume_groundwork_admin()` — assumes admin role in member accounts for IAM management

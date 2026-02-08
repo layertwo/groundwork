@@ -14,6 +14,48 @@ OIDC_ISSUER = "https://idp.example.com"
 OIDC_CLIENT_ID = "groundwork-client"
 
 
+class TestGetManagementSession:
+    async def test_assumes_role_with_configured_arn(self):
+        _, sts_stubber = await create_stubbed_client("sts")
+        sts_stubber.add_response(
+            "assume_role",
+            {
+                "Credentials": {
+                    "AccessKeyId": "AKIAMGMTEXAMPLE1234",
+                    "SecretAccessKey": "secretMGMTkey1234567890example",
+                    "SessionToken": "tokenMGMT1234567890session",
+                    "Expiration": datetime(2025, 1, 1),
+                },
+                "AssumedRoleUser": {
+                    "AssumedRoleId": "AROAMGMT:GroundworkOrganizations",
+                    "Arn": "arn:aws:sts::111122223333:assumed-role/GroundworkManagementRole/GroundworkOrganizations",
+                },
+            },
+            expected_params={
+                "RoleArn": "arn:aws:iam::111122223333:role/GroundworkManagementRole",
+                "RoleSessionName": "GroundworkOrganizations",
+            },
+        )
+        sts_stubber.activate()
+
+        with (
+            patch.object(aws, "get_session", return_value=_stubbed_session({"sts": sts_stubber})),
+            patch.object(
+                settings,
+                "aws_management_role_arn",
+                "arn:aws:iam::111122223333:role/GroundworkManagementRole",
+            ),
+            patch("backend.services.aws.aioboto3") as mock_aioboto3,
+        ):
+            session = await aws.get_management_session()
+
+        assert session is not None
+        mock_aioboto3.Session.assert_called_once()
+        call_kwargs = mock_aioboto3.Session.call_args[1]
+        assert call_kwargs["aws_access_key_id"] == "AKIAMGMTEXAMPLE1234"
+        sts_stubber.assert_no_pending_responses()
+
+
 class TestCreateAccount:
     async def test_create_account_returns_request_id(self):
         _, stubber = await create_stubbed_client("organizations")
@@ -25,7 +67,10 @@ class TestCreateAccount:
         stubber.activate()
 
         with patch.object(
-            aws, "get_session", return_value=_stubbed_session({"organizations": stubber})
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"organizations": stubber}),
         ):
             result = await aws.create_account("TestAccount", "test@example.com")
 
@@ -50,7 +95,10 @@ class TestPollAccountCreation:
         stubber.activate()
 
         with patch.object(
-            aws, "get_session", return_value=_stubbed_session({"organizations": stubber})
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"organizations": stubber}),
         ):
             result = await aws.poll_account_creation("car-abc123")
 
@@ -68,7 +116,10 @@ class TestPollAccountCreation:
         stubber.activate()
 
         with patch.object(
-            aws, "get_session", return_value=_stubbed_session({"organizations": stubber})
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"organizations": stubber}),
         ):
             result = await aws.poll_account_creation("car-abc123")
 
@@ -91,7 +142,10 @@ class TestPollAccountCreation:
         stubber.activate()
 
         with patch.object(
-            aws, "get_session", return_value=_stubbed_session({"organizations": stubber})
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"organizations": stubber}),
         ):
             result = await aws.poll_account_creation("car-abc123")
 
@@ -128,7 +182,10 @@ class TestMoveAccountToOu:
         stubber.activate()
 
         with patch.object(
-            aws, "get_session", return_value=_stubbed_session({"organizations": stubber})
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"organizations": stubber}),
         ):
             await aws.move_account_to_ou("123456789012", "ou-abc1-12345678")
 
@@ -140,7 +197,10 @@ class TestMoveAccountToOu:
         stubber.activate()
 
         with patch.object(
-            aws, "get_session", return_value=_stubbed_session({"organizations": stubber})
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"organizations": stubber}),
         ):
             with pytest.raises(RuntimeError, match="No organization root found"):
                 await aws.move_account_to_ou("123456789012", "ou-abc1-12345678")
