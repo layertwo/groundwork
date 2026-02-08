@@ -35,12 +35,33 @@ def get_session() -> aioboto3.Session:
     return _session
 
 
+async def get_management_session() -> aioboto3.Session:
+    """Assume the Organizations role in the management account.
+
+    Used for Organizations API calls (CreateAccount, MoveAccount, etc.)
+    that cannot be delegated to a member account.
+    """
+    session = get_session()
+    async with session.client("sts") as sts:
+        assumed = await sts.assume_role(
+            RoleArn=settings.aws_management_role_arn,
+            RoleSessionName="GroundworkOrganizations",
+        )
+    creds = assumed["Credentials"]
+    return aioboto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=settings.aws_region,
+    )
+
+
 async def create_account(account_name: str, account_email: str) -> str:
     """Create an AWS account via Organizations.
 
     Returns the CreateAccountRequest ID for polling.
     """
-    session = get_session()
+    session = await get_management_session()
     async with session.client("organizations") as orgs:
         resp = await orgs.create_account(
             Email=account_email,
@@ -61,7 +82,7 @@ async def poll_account_creation(request_id: str) -> dict:
     Returns dict with 'status' (IN_PROGRESS, SUCCEEDED, FAILED)
     and 'aws_account_id' on success or 'error' on failure.
     """
-    session = get_session()
+    session = await get_management_session()
     async with session.client("organizations") as orgs:
         resp = await orgs.describe_create_account_status(
             CreateAccountRequestId=request_id,
@@ -81,7 +102,7 @@ async def poll_account_creation(request_id: str) -> dict:
 
 async def move_account_to_ou(aws_account_id: str, ou: str) -> None:
     """Move a newly created account into the target Organizational Unit."""
-    session = get_session()
+    session = await get_management_session()
     async with session.client("organizations") as orgs:
         # List roots to find the root ID (source for new accounts)
         roots_resp = await orgs.list_roots()
