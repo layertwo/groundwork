@@ -39,9 +39,7 @@ class TestGetManagementSession:
         sts_stubber.activate()
 
         with (
-            patch.object(
-                aws, "get_session", return_value=_stubbed_session({"sts": sts_stubber})
-            ),
+            patch.object(aws, "get_session", return_value=_stubbed_session({"sts": sts_stubber})),
             patch.object(
                 settings,
                 "aws_management_role_arn",
