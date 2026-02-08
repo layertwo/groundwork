@@ -119,6 +119,58 @@ async def move_account_to_ou(aws_account_id: str, ou: str) -> None:
         logger.info("Moved account %s to OU %s", aws_account_id, ou)
 
 
+async def list_org_accounts() -> list[dict]:
+    """List all accounts in the AWS Organization, excluding the management account.
+
+    Returns a list of dicts with keys: aws_account_id, name, email, status.
+    Handles pagination automatically.
+    """
+    session = await get_management_session()
+
+    # Discover management account ID to filter it out
+    async with session.client("sts") as sts:
+        identity = await sts.get_caller_identity()
+        mgmt_account_id = identity["Account"]
+
+    accounts: list[dict] = []
+    async with session.client("organizations") as orgs:
+        kwargs: dict = {}
+        while True:
+            resp = await orgs.list_accounts(**kwargs)
+            for acct in resp.get("Accounts", []):
+                if acct["Id"] == mgmt_account_id:
+                    continue
+                accounts.append(
+                    {
+                        "aws_account_id": acct["Id"],
+                        "name": acct["Name"],
+                        "email": acct["Email"],
+                        "status": acct["Status"],
+                    }
+                )
+            next_token = resp.get("NextToken")
+            if not next_token:
+                break
+            kwargs["NextToken"] = next_token
+
+    logger.info("Discovered %d org accounts (excluding management)", len(accounts))
+    return accounts
+
+
+async def get_account_ou(aws_account_id: str) -> str:
+    """Get the parent OU (or root) ID for an account.
+
+    Returns the OU ID string (e.g., 'ou-abc1-12345678' or 'r-abc1').
+    """
+    session = await get_management_session()
+    async with session.client("organizations") as orgs:
+        resp = await orgs.list_parents(ChildId=aws_account_id)
+        parents = resp.get("Parents", [])
+        if not parents:
+            raise RuntimeError(f"No parent found for account {aws_account_id}")
+        return parents[0]["Id"]
+
+
 async def bootstrap_account(aws_account_id: str, ou_id: str | None = None) -> dict:
     """Bootstrap a new account via StackSet deployment.
 

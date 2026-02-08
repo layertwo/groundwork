@@ -27,6 +27,7 @@ class AccountResponse(BaseModel):
     account_email: str
     organizational_unit: str
     status: str
+    aws_status: Optional[str]
     sso_user_email: str
     provisioned_product_id: Optional[str]
     oidc_provider_arn: Optional[str]

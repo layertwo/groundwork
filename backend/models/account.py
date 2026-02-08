@@ -24,6 +24,7 @@ class Account(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="pending", server_default="pending"
     )
+    aws_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     sso_user_email: Mapped[str] = mapped_column(String(320), nullable=False)
     provisioned_product_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     oidc_provider_arn: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)

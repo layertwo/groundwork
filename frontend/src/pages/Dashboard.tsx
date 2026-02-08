@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Folder } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { Folder, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -15,6 +15,7 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { listAccounts } from '@/api/accounts'
 import { listRoles } from '@/api/roles'
+import { createJob } from '@/api/jobs'
 import FederateDropdown from '@/components/FederateDropdown'
 import SearchInput from '@/components/SearchInput'
 
@@ -47,6 +48,7 @@ function Landing() {
 export default function Dashboard() {
   const { isAuthenticated, isAdmin, isLoading: authLoading } = useAuth()
   const [search, setSearch] = useState('')
+  const [showClosed, setShowClosed] = useState(false)
 
   const { data: accounts, isLoading: accountsLoading } = useQuery({
     queryKey: ['accounts'],
@@ -58,6 +60,13 @@ export default function Dashboard() {
     queryKey: ['roles'],
     queryFn: listRoles,
     enabled: isAuthenticated,
+  })
+
+  const navigate = useNavigate()
+
+  const syncMutation = useMutation({
+    mutationFn: () => createJob({ job_type: 'sync_accounts' }),
+    onSuccess: () => navigate('/jobs'),
   })
 
   const rolesByAccount = useMemo(() => {
@@ -73,16 +82,26 @@ export default function Dashboard() {
 
   const grouped = useMemo(() => {
     if (!accounts) return []
+    let filtered = accounts
+
+    // Hide suspended/closed accounts unless toggled
+    if (!showClosed) {
+      filtered = filtered.filter(
+        (a) => !a.aws_status || a.aws_status === 'ACTIVE'
+      )
+    }
+
     const q = search.toLowerCase()
-    const filtered = q
-      ? accounts.filter(
-          (a) =>
-            a.account_name.toLowerCase().includes(q) ||
-            a.account_email.toLowerCase().includes(q) ||
-            (a.aws_account_id ?? '').includes(q) ||
-            a.organizational_unit.toLowerCase().includes(q)
-        )
-      : accounts
+    if (q) {
+      filtered = filtered.filter(
+        (a) =>
+          a.account_name.toLowerCase().includes(q) ||
+          a.account_email.toLowerCase().includes(q) ||
+          (a.aws_account_id ?? '').includes(q) ||
+          a.organizational_unit.toLowerCase().includes(q)
+      )
+    }
+
     const map = new Map<string, typeof accounts>()
     for (const a of filtered) {
       const ou = a.organizational_unit
@@ -90,7 +109,7 @@ export default function Dashboard() {
       map.get(ou)!.push(a)
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
-  }, [accounts, search])
+  }, [accounts, search, showClosed])
 
   if (authLoading) {
     return <div className="flex items-center justify-center h-64">Loading...</div>
@@ -105,9 +124,19 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold tracking-tight">Accounts</h1>
         {isAdmin && (
-          <Button asChild>
-            <Link to="/accounts/new">+ New Account</Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+            >
+              <RefreshCw className={`mr-1.5 size-3.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+              Sync Accounts
+            </Button>
+            <Button asChild>
+              <Link to="/accounts/new">+ New Account</Link>
+            </Button>
+          </div>
         )}
       </div>
 
@@ -116,6 +145,18 @@ export default function Dashboard() {
         value={search}
         onChange={(e) => setSearch(e.target.value)}
       />
+
+      {accounts && accounts.some((a) => a.aws_status && a.aws_status !== 'ACTIVE') && (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={showClosed}
+            onChange={(e) => setShowClosed(e.target.checked)}
+            className="rounded"
+          />
+          Show suspended/closed accounts
+        </label>
+      )}
 
       {accountsLoading ? (
         <div className="text-muted-foreground">Loading accounts...</div>
@@ -148,7 +189,14 @@ export default function Dashboard() {
                     </TableCell>
                   </TableRow>
                   {ouAccounts.map((account) => (
-                    <TableRow key={account.id}>
+                    <TableRow
+                      key={account.id}
+                      className={
+                        account.aws_status && account.aws_status !== 'ACTIVE'
+                          ? 'opacity-50'
+                          : undefined
+                      }
+                    >
                       <TableCell>
                         <Link
                           to={`/accounts/${account.id}`}

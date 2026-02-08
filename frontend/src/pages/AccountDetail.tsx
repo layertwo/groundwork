@@ -145,6 +145,9 @@ export default function AccountDetail() {
             {account.account_name}
           </h1>
           <Badge variant={statusVariant(account.status)}>{account.status}</Badge>
+          {account.aws_status && account.aws_status !== 'ACTIVE' && (
+            <Badge variant="secondary">{account.aws_status.toLowerCase()}</Badge>
+          )}
         </div>
         <div className="text-sm text-muted-foreground space-x-4">
           <span>AWS Account: <span className="font-mono">{account.aws_account_id ?? '—'}</span></span>
