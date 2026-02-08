@@ -33,6 +33,31 @@ def get_session() -> aioboto3.Session:
     return _session
 
 
+async def get_groundwork_session() -> aioboto3.Session:
+    """Assume a role in the Groundwork account and return a session.
+
+    Used for StackSet management and as the base session for assuming
+    GroundworkAdmin roles in member accounts.
+    """
+    session = get_session()
+    role_arn = (
+        f"arn:aws:iam::{settings.aws_groundwork_account_id}"
+        f":role/{settings.aws_groundwork_role_name}"
+    )
+    async with session.client("sts") as sts:
+        assumed = await sts.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName="GroundworkStackSet",
+        )
+    creds = assumed["Credentials"]
+    return aioboto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=settings.aws_region,
+    )
+
+
 async def create_account(account_name: str, account_email: str) -> str:
     """Create an AWS account via Organizations.
 

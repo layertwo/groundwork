@@ -220,6 +220,45 @@ class TestBootstrapAccount:
         iam_stubber.assert_no_pending_responses()
 
 
+class TestGetGroundworkSession:
+    async def test_assumes_role_in_groundwork_account(self):
+        _, sts_stubber = await create_stubbed_client("sts")
+        sts_stubber.add_response(
+            "assume_role",
+            {
+                "Credentials": {
+                    "AccessKeyId": "AKIAIOSFODNN7EXAMPLE",
+                    "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                    "SessionToken": "FwoGZXIvYXdzEBYaDHqa0AP1tokenEXAMPLE",
+                    "Expiration": datetime(2025, 1, 1),
+                },
+                "AssumedRoleUser": {
+                    "AssumedRoleId": "AROAEXAMPLE:GroundworkStackSet",
+                    "Arn": "arn:aws:sts::222233334444:assumed-role/GroundworkStackSetRole/GroundworkStackSet",
+                },
+            },
+            expected_params={
+                "RoleArn": "arn:aws:iam::222233334444:role/GroundworkStackSetRole",
+                "RoleSessionName": "GroundworkStackSet",
+            },
+        )
+        sts_stubber.activate()
+
+        with (
+            patch.object(aws, "get_session", return_value=_stubbed_session({"sts": sts_stubber})),
+            patch.object(settings, "aws_groundwork_account_id", "222233334444"),
+            patch.object(settings, "aws_groundwork_role_name", "GroundworkStackSetRole"),
+            patch("backend.services.aws.aioboto3") as mock_aioboto3,
+        ):
+            session = await aws.get_groundwork_session()
+
+        assert session is not None
+        mock_aioboto3.Session.assert_called_once()
+        call_kwargs = mock_aioboto3.Session.call_args[1]
+        assert call_kwargs["aws_access_key_id"] == "AKIAIOSFODNN7EXAMPLE"
+        sts_stubber.assert_no_pending_responses()
+
+
 class TestBuildBootstrapTemplate:
     def test_template_has_required_resources(self):
         body = aws._build_bootstrap_template(
