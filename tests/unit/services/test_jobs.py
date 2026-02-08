@@ -85,9 +85,7 @@ class TestProvisionJobSuccess:
         assert job.status == "completed"
         assert job.completed_at is not None
         assert job.result["aws_account_id"] == "123456789012"
-        mock_bootstrap.assert_called_once_with(
-            "123456789012", ou_id="ou-1234"
-        )
+        mock_bootstrap.assert_called_once_with("123456789012", ou_id="ou-1234")
 
 
 class TestProvisionJobFailure:
