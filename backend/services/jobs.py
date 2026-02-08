@@ -125,7 +125,9 @@ async def run_provision_account(job: Job, db: AsyncSession) -> None:
         await aws.move_account_to_ou(account.aws_account_id, account.organizational_unit)
 
         # Step 4: Bootstrap
-        bootstrap_result = await aws.bootstrap_account(account.aws_account_id)
+        bootstrap_result = await aws.bootstrap_account(
+            account.aws_account_id, ou_id=account.organizational_unit
+        )
         account.oidc_provider_arn = bootstrap_result["oidc_provider_arn"]
 
         # Step 5: Mark complete
