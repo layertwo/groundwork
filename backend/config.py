@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     aws_management_role_arn: str = ""
     admin_role_name: str = "GroundworkAdmin-DO-NOT-DELETE"
 
+    # Sync scheduler
+    sync_interval_minutes: int = Field(default=0, ge=0)
+
     # App
     app_name: str = "Groundwork"
     app_url: str = "http://localhost:8000"
