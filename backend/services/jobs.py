@@ -277,6 +277,7 @@ async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
             "bootstrap_triggered": 0,
             "skipped_suspended": 0,
         }
+        bootstrap_job_ids: list[uuid.UUID] = []
 
         for org_acct in org_accounts:
             aws_id = org_acct["aws_account_id"]
@@ -302,7 +303,6 @@ async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
                 if aws_status != "ACTIVE":
                     counts["skipped_suspended"] += 1
                 else:
-                    # Spawn bootstrap job
                     bootstrap_job = Job(
                         account_id=account.id,
                         job_type="bootstrap_account",
@@ -311,7 +311,7 @@ async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
                     )
                     db.add(bootstrap_job)
                     await db.flush()
-                    asyncio.create_task(execute_job(bootstrap_job.id))
+                    bootstrap_job_ids.append(bootstrap_job.id)
                     counts["bootstrap_triggered"] += 1
             else:
                 # Existing account -- reconcile
@@ -348,7 +348,7 @@ async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
                     )
                     db.add(bootstrap_job)
                     await db.flush()
-                    asyncio.create_task(execute_job(bootstrap_job.id))
+                    bootstrap_job_ids.append(bootstrap_job.id)
                     counts["bootstrap_triggered"] += 1
 
                 if aws_status != "ACTIVE":
@@ -367,6 +367,10 @@ async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
             detail=counts,
         )
         await db.commit()
+
+        # Fire bootstrap tasks after commit so child jobs can find their rows
+        for bj_id in bootstrap_job_ids:
+            asyncio.create_task(execute_job(bj_id))
 
     except Exception as exc:
         logger.exception("Sync accounts failed")
@@ -586,8 +590,10 @@ def _sanitize_error(exc: Exception) -> str:
         return msg
     if "Account creation timed out" in msg:
         return msg
-    if "Bootstrap stack deployment" in msg:
-        return msg
+    if "Bootstrap stack deployment failed" in msg:
+        return "Bootstrap stack deployment failed"
+    if "Bootstrap stack deployment timed out" in msg:
+        return "Bootstrap stack deployment timed out"
     # AWS IAM errors safe to surface
     safe_codes = ["EntityAlreadyExists", "MalformedPolicyDocument", "NoSuchEntity"]
     for code in safe_codes:

@@ -27,14 +27,16 @@ async def create_job(
     admin: User = Depends(get_current_admin),
 ):
     if body.job_type not in ALLOWED_JOB_TYPES:
-        raise GroundworkError(f"Unsupported job type: {body.job_type}", status_code=400)
+        raise GroundworkError("Unsupported job type", status_code=400)
 
-    # Prevent duplicate sync jobs
+    # Prevent duplicate sync jobs (FOR UPDATE prevents TOCTOU race)
     existing = await db.execute(
-        select(Job).where(
+        select(Job)
+        .where(
             Job.job_type == body.job_type,
             Job.status.in_(["pending", "in_progress"]),
         )
+        .with_for_update()
     )
     if existing.scalar_one_or_none() is not None:
         raise ConflictError(f"A {body.job_type} job is already running")
@@ -59,7 +61,16 @@ async def create_job(
 async def list_jobs(
     account_id: Optional[UUID] = Query(None),
     status: Optional[Literal["pending", "in_progress", "completed", "failed"]] = Query(None),
-    job_type: Optional[str] = Query(None),
+    job_type: Optional[
+        Literal[
+            "provision_account",
+            "sync_accounts",
+            "bootstrap_account",
+            "create_role",
+            "update_role",
+            "delete_role",
+        ]
+    ] = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

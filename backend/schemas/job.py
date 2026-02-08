@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class JobCreate(BaseModel):
-    job_type: str = Field(min_length=1, max_length=64)
+    job_type: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
 
 
 class JobResponse(BaseModel):
