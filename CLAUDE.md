@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-All commands require `PYTHONPATH=/Users/lucas/groundwork` (or `PYTHONPATH=.` from repo root) and an activated venv.
+All commands require `PYTHONPATH=.` (from repo root) and an activated venv.
 
 ```bash
 # Setup
@@ -43,11 +43,11 @@ mypy backend/ tests/
 - `UUIDPrimaryKeyMixin` — UUID PK with `gen_random_uuid()` server default
 - `TimestampMixin` — `created_at`/`updated_at` with `func.now()` server defaults
 
-All 6 models are re-exported from `backend/models/__init__.py` (required for Alembic autogenerate).
+All 7 models are re-exported from `backend/models/__init__.py` (required for Alembic autogenerate).
 
-**Routers** implement CRUD + auth endpoints across accounts, roles, jobs, auth, and role templates.
+**Routers** implement CRUD + auth endpoints across accounts, roles (including role templates), jobs, and auth. A health endpoint is defined directly in `main.py` and an audit router exists but returns 501.
 
-**Services:** `backend/services/` contains `oidc.py` (OIDC auth), `aws.py` (IAM/STS/Organizations/CloudFormation StackSets), `jobs.py` (background task executor), `audit.py` (audit logging).
+**Services:** `backend/services/` contains `oidc.py` (OIDC auth), `aws.py` (IAM/STS/Organizations/CloudFormation StackSets), `jobs.py` (background task executor), `audit.py` (audit logging), `crypto.py` (Fernet token encryption).
 
 **AWS service layer (`backend/services/aws.py`):** Uses a dedicated Groundwork AWS account (delegated administrator for CloudFormation StackSets) rather than the management account for bootstrap operations. Key functions:
 - `get_session()` — default session for Organizations API calls (management account)
@@ -56,7 +56,7 @@ All 6 models are re-exported from `backend/models/__init__.py` (required for Ale
 - `bootstrap_account()` — polls StackSet deployment status, triggers manual deploy if needed
 - `assume_groundwork_admin()` — chains through Groundwork account to assume admin role in member accounts
 
-**Exception hierarchy:** `GroundworkError` base class with `NotFoundError(404)`, `ConflictError(409)`, `ForbiddenError(403)`. Handlers registered in `main.py` return `{"detail": message}`.
+**Exception hierarchy:** `GroundworkError` base class with `NotFoundError(404)`, `UnauthorizedError(401)`, `ForbiddenError(403)`, `ConflictError(409)`, `NotImplementedHttpError(501)`. Handlers registered in `main.py` return `{"detail": message}`.
 
 **Alembic** runs async via `async_engine_from_config` with `NullPool`. Imports `Base.metadata` from `backend.models`.
 
@@ -72,7 +72,7 @@ Detailed plans in `docs/plans/`. Summary:
 
 ## Testing
 
-Tests mirror the cortex repo pattern: `tests/unit/`, `tests/integration/`, `tests/property/` directories with fixtures in `tests/fixtures/`.
+Tests live in `tests/unit/`, `tests/integration/`, `tests/property/` directories with shared fixture modules in `tests/fixtures/`.
 
 **DB test isolation:** `db_session` fixture wraps each test in a transaction that rolls back — safe for parallel xdist execution. Tables must exist (created by migration), they are not created/dropped per test.
 
