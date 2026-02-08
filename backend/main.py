@@ -1,4 +1,5 @@
 import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -15,7 +16,9 @@ from backend.exceptions import register_exception_handlers
 from backend.routers import accounts, audit, auth, jobs, roles
 from backend.schemas.common import HealthResponse
 
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
+
 
 VERSION = "0.1.0"
 
