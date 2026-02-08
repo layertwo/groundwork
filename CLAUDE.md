@@ -50,10 +50,12 @@ All 7 models are re-exported from `backend/models/__init__.py` (required for Ale
 **Services:** `backend/services/` contains `oidc.py` (OIDC auth), `aws.py` (IAM/STS/Organizations/CloudFormation StackSets), `jobs.py` (background task executor), `audit.py` (audit logging), `crypto.py` (Fernet token encryption).
 
 **AWS service layer (`backend/services/aws.py`):** Uses a dedicated Groundwork AWS account (delegated administrator for CloudFormation StackSets) rather than the management account for bootstrap operations. Key functions:
-- `get_session()` — default session (Groundwork account); used for all AWS API calls (Organizations via delegation policy, StackSets via `CallAs="DELEGATED_ADMIN"`, STS for role assumption)
+- `get_session()` — default session (Groundwork account); used for StackSets via `CallAs="DELEGATED_ADMIN"` and STS for role assumption
+- `get_management_session()` — assumes role in management account for Organizations API calls (CreateAccount, MoveAccount, etc.)
+- `get_groundwork_session()` — assumes role in Groundwork account for StackSet + admin operations
 - `ensure_bootstrap_stackset()` — idempotent creation of service-managed StackSet with auto-deploy
 - `bootstrap_account()` — polls StackSet deployment status, triggers manual deploy if needed
-- `assume_groundwork_admin()` — assumes admin role in member accounts for IAM management
+- `assume_groundwork_admin()` — chains through Groundwork account to assume admin role in member accounts
 
 **Exception hierarchy:** `GroundworkError` base class with `NotFoundError(404)`, `UnauthorizedError(401)`, `ForbiddenError(403)`, `ConflictError(409)`, `NotImplementedHttpError(501)`. Handlers registered in `main.py` return `{"detail": message}`.
 
