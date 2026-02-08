@@ -539,3 +539,185 @@ class TestAssumeGroundworkAdminViaGW:
         call_kwargs = mock_aioboto3.Session.call_args[1]
         assert call_kwargs["aws_access_key_id"] == "AKIATARGETEXAMPLE1"
         sts_stubber.assert_no_pending_responses()
+
+
+class TestListOrgAccounts:
+    async def test_returns_all_accounts_except_management(self):
+        """list_org_accounts filters out the management account."""
+        _, stubber = await create_stubbed_client("organizations")
+        stubber.add_response(
+            "list_accounts",
+            {
+                "Accounts": [
+                    {
+                        "Id": "111111111111",
+                        "Name": "Management",
+                        "Email": "mgmt@example.com",
+                        "Status": "ACTIVE",
+                        "JoinedMethod": "INVITED",
+                        "JoinedTimestamp": datetime(2024, 1, 1),
+                        "Arn": "arn:aws:organizations::111111111111:account/o-abc/111111111111",
+                    },
+                    {
+                        "Id": "222222222222",
+                        "Name": "Workload",
+                        "Email": "work@example.com",
+                        "Status": "ACTIVE",
+                        "JoinedMethod": "CREATED",
+                        "JoinedTimestamp": datetime(2024, 6, 1),
+                        "Arn": "arn:aws:organizations::111111111111:account/o-abc/222222222222",
+                    },
+                    {
+                        "Id": "333333333333",
+                        "Name": "Suspended",
+                        "Email": "sus@example.com",
+                        "Status": "SUSPENDED",
+                        "JoinedMethod": "CREATED",
+                        "JoinedTimestamp": datetime(2024, 3, 1),
+                        "Arn": "arn:aws:organizations::111111111111:account/o-abc/333333333333",
+                    },
+                ],
+            },
+        )
+        _, sts_stubber = await create_stubbed_client("sts")
+        sts_stubber.add_response(
+            "get_caller_identity",
+            {
+                "UserId": "AROA:GroundworkOrganizations",
+                "Account": "111111111111",
+                "Arn": "arn:aws:sts::111111111111:assumed-role/GroundworkManagementRole/GroundworkOrganizations",
+            },
+        )
+        stubber.activate()
+        sts_stubber.activate()
+
+        mgmt_session = _stubbed_session({"organizations": stubber, "sts": sts_stubber})
+
+        with patch.object(
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=mgmt_session,
+        ):
+            accounts = await aws.list_org_accounts()
+
+        assert len(accounts) == 2
+        ids = [a["aws_account_id"] for a in accounts]
+        assert "111111111111" not in ids
+        assert "222222222222" in ids
+        assert "333333333333" in ids
+
+    async def test_paginates_accounts(self):
+        """list_org_accounts handles pagination."""
+        _, stubber = await create_stubbed_client("organizations")
+        stubber.add_response(
+            "list_accounts",
+            {
+                "Accounts": [
+                    {
+                        "Id": "222222222222",
+                        "Name": "Page1",
+                        "Email": "p1@example.com",
+                        "Status": "ACTIVE",
+                        "JoinedMethod": "CREATED",
+                        "JoinedTimestamp": datetime(2024, 1, 1),
+                        "Arn": "arn:aws:organizations::111:account/o-abc/222222222222",
+                    },
+                ],
+                "NextToken": "token123",
+            },
+        )
+        stubber.add_response(
+            "list_accounts",
+            {
+                "Accounts": [
+                    {
+                        "Id": "333333333333",
+                        "Name": "Page2",
+                        "Email": "p2@example.com",
+                        "Status": "ACTIVE",
+                        "JoinedMethod": "CREATED",
+                        "JoinedTimestamp": datetime(2024, 2, 1),
+                        "Arn": "arn:aws:organizations::111:account/o-abc/333333333333",
+                    },
+                ],
+            },
+        )
+        _, sts_stubber = await create_stubbed_client("sts")
+        sts_stubber.add_response(
+            "get_caller_identity",
+            {
+                "UserId": "AROA:session",
+                "Account": "111111111111",
+                "Arn": "arn:aws:sts::111111111111:assumed-role/role/session",
+            },
+        )
+        stubber.activate()
+        sts_stubber.activate()
+
+        mgmt_session = _stubbed_session({"organizations": stubber, "sts": sts_stubber})
+
+        with patch.object(
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=mgmt_session,
+        ):
+            accounts = await aws.list_org_accounts()
+
+        assert len(accounts) == 2
+        assert accounts[0]["aws_account_id"] == "222222222222"
+        assert accounts[1]["aws_account_id"] == "333333333333"
+
+
+class TestGetAccountOu:
+    async def test_returns_ou_id(self):
+        _, stubber = await create_stubbed_client("organizations")
+        stubber.add_response(
+            "list_parents",
+            {
+                "Parents": [
+                    {"Id": "ou-abc1-12345678", "Type": "ORGANIZATIONAL_UNIT"},
+                ]
+            },
+            expected_params={"ChildId": "222222222222"},
+        )
+        stubber.activate()
+
+        mgmt_session = _stubbed_session({"organizations": stubber})
+
+        with patch.object(
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=mgmt_session,
+        ):
+            ou_id = await aws.get_account_ou("222222222222")
+
+        assert ou_id == "ou-abc1-12345678"
+        stubber.assert_no_pending_responses()
+
+    async def test_returns_root_id_when_at_root(self):
+        _, stubber = await create_stubbed_client("organizations")
+        stubber.add_response(
+            "list_parents",
+            {
+                "Parents": [
+                    {"Id": "r-abc1", "Type": "ROOT"},
+                ]
+            },
+            expected_params={"ChildId": "222222222222"},
+        )
+        stubber.activate()
+
+        mgmt_session = _stubbed_session({"organizations": stubber})
+
+        with patch.object(
+            aws,
+            "get_management_session",
+            new_callable=AsyncMock,
+            return_value=mgmt_session,
+        ):
+            ou_id = await aws.get_account_ou("222222222222")
+
+        assert ou_id == "r-abc1"
