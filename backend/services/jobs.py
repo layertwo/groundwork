@@ -376,6 +376,8 @@ def _sanitize_error(exc: Exception) -> str:
         return msg
     if "Account creation timed out" in msg:
         return msg
+    if "Bootstrap stack deployment" in msg:
+        return msg
     # AWS IAM errors safe to surface
     safe_codes = ["EntityAlreadyExists", "MalformedPolicyDocument", "NoSuchEntity"]
     for code in safe_codes:

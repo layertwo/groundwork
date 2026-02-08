@@ -11,6 +11,7 @@ from urllib.parse import quote, urlparse
 
 import aioboto3
 import aiohttp
+from botocore.exceptions import ClientError
 
 from backend.config import settings
 
@@ -385,8 +386,6 @@ async def update_iam_role(
                     PolicyDocument=json.dumps(changes["inline_policy"]),
                 )
             else:
-                from botocore.exceptions import ClientError
-
                 try:
                     await iam.delete_role_policy(
                         RoleName=role_name,
@@ -520,8 +519,6 @@ async def get_stack_instance_status(aws_account_id: str) -> dict:
     - status: str — CURRENT, OUTDATED, INOPERABLE, or NOT_FOUND
     - detailed_status: str — SUCCEEDED, PENDING, RUNNING, FAILED, etc.
     """
-    from botocore.exceptions import ClientError
-
     gw_session = await get_groundwork_session()
     async with gw_session.client("cloudformation") as cfn:
         try:
@@ -574,8 +571,6 @@ async def ensure_bootstrap_stackset() -> None:
     the entire organization. Idempotent — skips creation if the StackSet
     already exists.
     """
-    from botocore.exceptions import ClientError
-
     gw_session = await get_groundwork_session()
 
     async with gw_session.client("cloudformation") as cfn:
