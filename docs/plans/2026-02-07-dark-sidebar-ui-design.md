@@ -1,24 +1,24 @@
-# Dark Theme + Sidebar Layout Redesign
+# Dark Theme + Navbar UI Redesign
 
 ## Summary
 
-Replace the current white top-navbar layout with a dark theme and left sidebar navigation. Green accent color from the logo is used sparingly for key interactive elements only.
+Replace the current white theme with a dark theme and updated top navbar. Green accent color from the logo is used sparingly. Accounts table is grouped by OU, includes a search bar and email column.
 
 ## Visual Reference
 
-Static preview: `docs/theme-preview.html`
+Static preview: `docs/theme-preview-navbar.html`
 
 ## Theme
 
 - **Dark-mode only** — remove the light `:root` theme, make dark the default
 - **Background**: flat `#161616` (neutral charcoal), no gradient
-- **Surface/cards/sidebar**: `#1a1a1a` — slightly lighter than background for depth
+- **Surface/cards/navbar**: `#1a1a1a` — slightly lighter than background for depth
 - **Borders**: `rgba(255,255,255, 0.07)` — barely visible separation
 - **Text hierarchy**:
   - Primary: `#e5e5e5`
   - Secondary: `#a3a3a3`
   - Muted/disabled: `#737373`
-  - Dimmed (table headers, AWS IDs): `#525252`
+  - Dimmed (table headers, AWS IDs, emails): `#525252`
 
 ## Green Accent (Subtle)
 
@@ -33,44 +33,72 @@ Green appears in only these places:
 
 Everything else (links, text, hovers, user avatar) stays neutral gray.
 
-## Layout: Sidebar
+## Layout: Top Navbar
 
-Replace the top `<header>` navbar with a fixed left sidebar.
+Keep a top navbar (not sidebar). Restyle it to match the dark theme.
 
 ### Structure
 
 ```
-+--sidebar(240px)--+--------main content---------+
-| Logo + Groundwork|                              |
-|-------------------|  Page title     [+ Action]  |
-| Accounts          |                              |
-| Role Templates    |  Card/table content          |
-| Jobs              |                              |
-|                   |                              |
-|                   |                              |
-|-------------------|                              |
-| [avatar] username |                              |
-+-------------------+------------------------------+
++--logo--Groundwork--[Accounts] [Role Templates] [Jobs]----------[avatar username]--+
+|                                                                                    |
+|                        Page title                       [+ Action]                 |
+|                                                                                    |
+|                        [Search bar...........................]                     |
+|                                                                                    |
+|                        Card/table content                                          |
+|                                                                                    |
++------------------------------------------------------------------------------------+
 ```
 
-### Sidebar contents
+### Navbar contents
 
-1. **Header**: Logo SVG (28px) + "Groundwork" text, separated by bottom border
-2. **Navigation**: Three links with Lucide icons
-   - `Building2` — Accounts (`/`)
-   - `Shield` — Role Templates (new route, currently not routed)
-   - `Activity` — Jobs (`/jobs`)
-3. **Footer**: User avatar circle (initials) + `display_name` from `UserInfo`, with dropdown for logout
+- **Left side**: Logo SVG (24px) + "Groundwork" text, then nav links with Lucide icons
+  - `Building2` — Accounts (`/`)
+  - `Shield` — Role Templates (new route, stub page)
+  - `Activity` — Jobs (`/jobs`)
+- **Right side**: User avatar circle (initials) + `display_name` from `UserInfo`, with dropdown for logout
 
-### Collapsed state (small screens)
+### Nav item states
 
-Sidebar collapses to icon-only (approx 56px wide). The "Groundwork" text, nav labels, and username text hide. Logo, nav icons, and avatar remain visible.
-
-### Active state
-
-- Active nav item: `rgba(255,255,255,0.06)` background, `#e5e5e5` text, icon colored `#047857`
+- Active: `rgba(255,255,255,0.06)` background, `#e5e5e5` text, icon colored `#047857`
 - Inactive: `#737373` text, no background
 - Hover: `rgba(255,255,255,0.05)` background, `#a3a3a3` text
+
+### Navbar styling
+
+- Height: 52px, sticky top
+- Background: `#1a1a1a`
+- Bottom border: `rgba(255,255,255, 0.07)`
+- Content max-width not constrained (full-width bar), but main content area uses `max-width: 1100px` centered
+
+## Accounts Table
+
+### Grouped by OU
+
+Instead of an OU column, accounts are grouped under OU section headers within the table:
+
+- **OU header row**: spans all columns, folder icon + OU name, uppercase, dimmed text (`#525252`), subtle background (`rgba(255,255,255,0.02)`)
+- Accounts belonging to that OU are listed below the header
+
+### Columns
+
+| Column | Style |
+|--------|-------|
+| Name | Link style (`#d4d4d4`, underline on hover) |
+| Email | Dimmed text (`#525252`) — account root email |
+| AWS Account ID | Monospace, dimmed (`#525252`) |
+| Status | Badge — Active (green) or Provisioning (yellow) |
+| Actions | Federate link (muted gray) |
+
+### Search Bar
+
+- Placed above the table card
+- Full-width text input with magnifying glass icon
+- Placeholder: "Search accounts..."
+- Styled: `#1a1a1a` background, `rgba(255,255,255,0.07)` border, `#525252` placeholder
+- Filters accounts client-side by name, email, AWS ID, or OU
+- All table views (accounts, role templates, jobs) get a search bar with appropriate placeholder text
 
 ## Changes Required
 
@@ -79,28 +107,43 @@ Sidebar collapses to icon-only (approx 56px wide). The "Groundwork" text, nav la
 - Remove `:root` light theme block
 - Make `.dark` values the only theme (move to `:root`)
 - Update color values to match the palette above
-- Update sidebar CSS variables to match
+- Remove sidebar CSS variables (no longer needed)
 
 ### `Layout.tsx`
 
-- Replace the `<header>` + horizontal nav with a sidebar layout
-- Sidebar: logo header, nav links with icons, user footer with dropdown
-- Main content: `<Outlet />` in a flex-grow container with padding
+- Restyle the existing `<header>` navbar to match dark theme
+- Add logo SVG alongside "Groundwork" text
+- Add Accounts and Role Templates nav links (currently only has Jobs)
 - Show `user.display_name` instead of `user.email`
-- Responsive: collapse to icon-only below a breakpoint (e.g., `lg`)
+- Add Lucide icons to nav links
+- Style active nav item based on current route
 
 ### `Dashboard.tsx`
 
-- Remove the "Groundwork" hero/branding from the unauthenticated landing (sidebar handles branding)
-- The accounts table and "New Account" button remain as-is
+- Remove the "Groundwork" hero/branding from the unauthenticated landing (navbar handles branding)
+- Group accounts by OU with section headers instead of an OU column
+- Add Email column to the accounts table
+- Add search bar above the table (filters by name, email, AWS ID, OU)
+
+### `AccountDetail.tsx`
+
+- Add search bar above the roles table
+
+### `JobList.tsx`
+
+- Add search bar above the jobs table (in addition to existing status/type filters)
 
 ### Routing
 
-- Add a `/role-templates` route placeholder (can be a stub page) for the sidebar link
+- Add a `/role-templates` route placeholder (stub page) for the nav link
 - Existing routes unchanged
+
+### Backend
+
+- Account `email` field needs to be returned in the accounts API response (verify it's already included in the schema; if not, add it)
 
 ## Out of Scope
 
 - Theme toggle (light/dark switching) — this is dark-only
-- Mobile hamburger menu — collapsible icon sidebar is sufficient
-- Changes to page content, forms, dialogs, or API layer
+- Sidebar layout — using top navbar instead
+- Changes to forms, dialogs, or non-table page content
