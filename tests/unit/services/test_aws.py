@@ -12,7 +12,6 @@ from tests.fixtures.aws import _stubbed_session, create_stubbed_client
 
 OIDC_ISSUER = "https://idp.example.com"
 OIDC_CLIENT_ID = "groundwork-client"
-MGMT_ACCOUNT_ID = "999888777666"
 
 
 class TestCreateAccount:
@@ -234,45 +233,6 @@ class TestBootstrapAccountStackSet:
                 await aws.bootstrap_account("123456789012")
 
 
-class TestGetGroundworkSession:
-    async def test_assumes_role_in_groundwork_account(self):
-        _, sts_stubber = await create_stubbed_client("sts")
-        sts_stubber.add_response(
-            "assume_role",
-            {
-                "Credentials": {
-                    "AccessKeyId": "AKIAIOSFODNN7EXAMPLE",
-                    "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-                    "SessionToken": "FwoGZXIvYXdzEBYaDHqa0AP1tokenEXAMPLE",
-                    "Expiration": datetime(2025, 1, 1),
-                },
-                "AssumedRoleUser": {
-                    "AssumedRoleId": "AROAEXAMPLE:GroundworkStackSet",
-                    "Arn": "arn:aws:sts::222233334444:assumed-role/GroundworkStackSetRole/GroundworkStackSet",
-                },
-            },
-            expected_params={
-                "RoleArn": "arn:aws:iam::222233334444:role/GroundworkStackSetRole",
-                "RoleSessionName": "GroundworkStackSet",
-            },
-        )
-        sts_stubber.activate()
-
-        with (
-            patch.object(aws, "get_session", return_value=_stubbed_session({"sts": sts_stubber})),
-            patch.object(settings, "aws_groundwork_account_id", "222233334444"),
-            patch.object(settings, "aws_groundwork_role_name", "GroundworkStackSetRole"),
-            patch("backend.services.aws.aioboto3") as mock_aioboto3,
-        ):
-            session = await aws.get_groundwork_session()
-
-        assert session is not None
-        mock_aioboto3.Session.assert_called_once()
-        call_kwargs = mock_aioboto3.Session.call_args[1]
-        assert call_kwargs["aws_access_key_id"] == "AKIAIOSFODNN7EXAMPLE"
-        sts_stubber.assert_no_pending_responses()
-
-
 class TestBuildBootstrapTemplate:
     def test_template_has_required_resources(self):
         body = aws._build_bootstrap_template(
@@ -349,7 +309,7 @@ class TestEnsureBootstrapStackset:
         mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
 
         with (
-            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(aws, "get_session", return_value=mock_gw_session),
             patch.object(aws, "get_oidc_thumbprint", new_callable=AsyncMock) as mock_thumb,
             patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
             patch.object(settings, "oidc_client_id", "gw-client"),
@@ -358,7 +318,6 @@ class TestEnsureBootstrapStackset:
             patch.object(settings, "aws_region", "us-east-1"),
             patch.object(settings, "aws_org_root_id", "r-abc1"),
         ):
-            mock_gw.return_value = mock_gw_session
             mock_thumb.return_value = "a" * 40
 
             await aws.ensure_bootstrap_stackset()
@@ -382,8 +341,7 @@ class TestEnsureBootstrapStackset:
 
         mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
 
-        with (patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,):
-            mock_gw.return_value = mock_gw_session
+        with patch.object(aws, "get_session", return_value=mock_gw_session):
             await aws.ensure_bootstrap_stackset()
 
         cfn_stubber.assert_no_pending_responses()
@@ -408,10 +366,9 @@ class TestGetStackInstanceStatus:
         mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
 
         with (
-            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(aws, "get_session", return_value=mock_gw_session),
             patch.object(settings, "aws_region", "us-east-1"),
         ):
-            mock_gw.return_value = mock_gw_session
             result = await aws.get_stack_instance_status("123456789012")
 
         assert result["status"] == "CURRENT"
@@ -429,10 +386,9 @@ class TestGetStackInstanceStatus:
         mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
 
         with (
-            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(aws, "get_session", return_value=mock_gw_session),
             patch.object(settings, "aws_region", "us-east-1"),
         ):
-            mock_gw.return_value = mock_gw_session
             result = await aws.get_stack_instance_status("123456789012")
 
         assert result["deployed"] is False
@@ -456,10 +412,9 @@ class TestGetStackInstanceStatus:
         mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
 
         with (
-            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(aws, "get_session", return_value=mock_gw_session),
             patch.object(settings, "aws_region", "us-east-1"),
         ):
-            mock_gw.return_value = mock_gw_session
             result = await aws.get_stack_instance_status("123456789012")
 
         assert result["deployed"] is False
@@ -477,10 +432,9 @@ class TestDeployToAccount:
         mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
 
         with (
-            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(aws, "get_session", return_value=mock_gw_session),
             patch.object(settings, "aws_region", "us-east-1"),
         ):
-            mock_gw.return_value = mock_gw_session
             op_id = await aws.deploy_to_account("123456789012", "ou-abc1-12345678")
 
         assert op_id == "op-manual-123"
@@ -489,7 +443,7 @@ class TestDeployToAccount:
 
 class TestAssumeGroundworkAdminViaGW:
     async def test_chains_through_groundwork_account(self):
-        """assume_groundwork_admin uses get_groundwork_session as base."""
+        """assume_groundwork_admin uses get_session as base."""
         _, sts_stubber = await create_stubbed_client("sts")
         sts_stubber.add_response(
             "assume_role",
@@ -515,14 +469,12 @@ class TestAssumeGroundworkAdminViaGW:
         gw_session = _stubbed_session({"sts": sts_stubber})
 
         with (
-            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(aws, "get_session", return_value=gw_session),
             patch("backend.services.aws.aioboto3") as mock_aioboto3,
             patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
         ):
-            mock_gw.return_value = gw_session
             await aws.assume_groundwork_admin("123456789012")
 
-        mock_gw.assert_called_once()
         mock_aioboto3.Session.assert_called_once()
         call_kwargs = mock_aioboto3.Session.call_args[1]
         assert call_kwargs["aws_access_key_id"] == "AKIATARGETEXAMPLE1"
