@@ -1,5 +1,6 @@
 """AWS service layer — all AWS API interactions live here."""
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -121,70 +122,46 @@ async def move_account_to_ou(aws_account_id: str, ou: str) -> None:
         logger.info("Moved account %s to OU %s", aws_account_id, ou)
 
 
-async def bootstrap_account(aws_account_id: str) -> dict:
-    """Bootstrap a new account with OIDC provider and admin management role.
+async def bootstrap_account(aws_account_id: str, ou_id: str | None = None) -> dict:
+    """Bootstrap a new account via StackSet deployment.
 
-    1. Assume OrganizationAccountAccessRole in the target account
-    2. Create OIDC identity provider
-    3. Create admin management role with trust policy
-    4. Attach AdministratorAccess
+    Ensures the bootstrap StackSet exists, then polls until the stack
+    instance is deployed to the target account. If the instance is not
+    found and ou_id is provided, triggers a manual deployment.
 
     Returns dict with oidc_provider_arn and admin_role_arn.
     """
-    session = get_session()
+    await ensure_bootstrap_stackset()
 
-    # Step 1: Assume role in the new account
-    role_arn = f"arn:aws:iam::{aws_account_id}:role/OrganizationAccountAccessRole"
-    async with session.client("sts") as sts:
-        assumed = await sts.assume_role(RoleArn=role_arn, RoleSessionName="GroundworkBootstrap")
-    creds = assumed["Credentials"]
+    elapsed = 0
+    deploy_triggered = False
 
-    # Step 2–4: Use assumed credentials in the target account
-    target_session = aioboto3.Session(
-        aws_access_key_id=creds["AccessKeyId"],
-        aws_secret_access_key=creds["SecretAccessKey"],
-        aws_session_token=creds["SessionToken"],
-        region_name=settings.aws_region,
-    )
+    while elapsed < BOOTSTRAP_POLL_TIMEOUT_SECONDS:
+        status = await get_stack_instance_status(aws_account_id)
 
-    async with target_session.client("iam") as iam:
-        # Step 2: Create OIDC provider
-        thumbprint = await get_oidc_thumbprint(settings.oidc_issuer_url)
-        oidc_resp = await iam.create_open_id_connect_provider(
-            Url=settings.oidc_issuer_url,
-            ClientIDList=[settings.oidc_client_id],
-            ThumbprintList=[thumbprint],
-        )
-        oidc_provider_arn = oidc_resp["OpenIDConnectProviderArn"]
+        if status["deployed"]:
+            break
 
-        # Step 3: Create admin management role
-        mgmt_account_id = settings.aws_management_account_id
-        trust_policy = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": {"AWS": f"arn:aws:iam::{mgmt_account_id}:root"},
-                    "Action": "sts:AssumeRole",
-                }
-            ],
-        }
-        role_resp = await iam.create_role(
-            RoleName=settings.admin_role_name,
-            AssumeRolePolicyDocument=json.dumps(trust_policy),
-            Description="Groundwork admin management role — DO NOT DELETE",
-            MaxSessionDuration=3600,
-        )
-        admin_role_arn = role_resp["Role"]["Arn"]
+        if status["detailed_status"] == "FAILED":
+            raise RuntimeError(f"Bootstrap stack deployment failed for account {aws_account_id}")
 
-        # Step 4: Attach AdministratorAccess
-        await iam.attach_role_policy(
-            RoleName=settings.admin_role_name,
-            PolicyArn="arn:aws:iam::aws:policy/AdministratorAccess",
-        )
+        # If instance doesn't exist yet, trigger manual deploy
+        if status["status"] == "NOT_FOUND" and ou_id and not deploy_triggered:
+            await deploy_to_account(aws_account_id, ou_id)
+            deploy_triggered = True
+
+        await asyncio.sleep(BOOTSTRAP_POLL_INTERVAL_SECONDS)
+        elapsed += BOOTSTRAP_POLL_INTERVAL_SECONDS
+    else:
+        raise RuntimeError(f"Bootstrap stack deployment timed out for account {aws_account_id}")
+
+    # Compute ARNs deterministically from known inputs
+    issuer_host = urlparse(settings.oidc_issuer_url).hostname
+    oidc_provider_arn = f"arn:aws:iam::{aws_account_id}:oidc-provider/{issuer_host}"
+    admin_role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
 
     logger.info(
-        "Bootstrapped account %s: oidc=%s role=%s",
+        "Bootstrap complete for account %s: oidc=%s role=%s",
         aws_account_id,
         oidc_provider_arn,
         admin_role_arn,
@@ -217,8 +194,6 @@ async def get_oidc_thumbprint(issuer_url: str) -> str:
 
 async def _fetch_server_cert(hostname: str, port: int, ctx: ssl.SSLContext) -> bytes:
     """Connect to host and return DER-encoded server certificate."""
-    import asyncio
-
     reader, writer = await asyncio.open_connection(hostname, port, ssl=ctx)
     ssl_object = writer.transport.get_extra_info("ssl_object")
     der_cert = ssl_object.getpeercert(binary_form=True)
@@ -235,11 +210,13 @@ async def _fetch_server_cert(hostname: str, port: int, ctx: ssl.SSLContext) -> b
 async def assume_groundwork_admin(aws_account_id: str) -> aioboto3.Session:
     """Assume the admin management role in a target account.
 
+    Chains through the Groundwork account (since the admin role trusts
+    the Groundwork account, not the management account).
     Returns an aioboto3 Session configured with the temporary credentials.
     """
-    session = get_session()
+    gw_session = await get_groundwork_session()
     role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
-    async with session.client("sts") as sts:
+    async with gw_session.client("sts") as sts:
         assumed = await sts.assume_role(
             RoleArn=role_arn,
             RoleSessionName="GroundworkRoleMgmt",
@@ -531,6 +508,8 @@ async def get_console_url(
 # ---------------------------------------------------------------------------
 
 BOOTSTRAP_STACKSET_NAME = "groundwork-bootstrap"
+BOOTSTRAP_POLL_INTERVAL_SECONDS = 30
+BOOTSTRAP_POLL_TIMEOUT_SECONDS = 15 * 60  # 15 minutes
 
 
 async def get_stack_instance_status(aws_account_id: str) -> dict:

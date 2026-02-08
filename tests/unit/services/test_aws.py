@@ -147,77 +147,91 @@ class TestMoveAccountToOu:
                 await aws.move_account_to_ou("123456789012", "ou-abc1-12345678")
 
 
-class TestBootstrapAccount:
-    async def test_bootstrap_creates_oidc_and_role(self):
-        _, sts_stubber = await create_stubbed_client("sts")
-        sts_stubber.add_response(
-            "assume_role",
-            {
-                "Credentials": {
-                    "AccessKeyId": "AKIAIOSFODNN7EXAMPLE",
-                    "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-                    "SessionToken": "FwoGZXIvYXdzEBYaDHqa0AP1",
-                    "Expiration": datetime(2025, 1, 1),
-                },
-                "AssumedRoleUser": {
-                    "AssumedRoleId": "AROAIOSFODNN7EXAMPLE:GroundworkBootstrap",
-                    "Arn": (
-                        "arn:aws:sts::123456789012:assumed-role"
-                        "/OrganizationAccountAccessRole/GroundworkBootstrap"
-                    ),
-                },
-            },
-            expected_params={
-                "RoleArn": ("arn:aws:iam::123456789012:role/OrganizationAccountAccessRole"),
-                "RoleSessionName": "GroundworkBootstrap",
-            },
-        )
-        sts_stubber.activate()
+class TestBootstrapAccountStackSet:
+    async def test_bootstrap_polls_until_deployed(self):
+        """bootstrap_account() polls get_stack_instance_status until deployed."""
+        call_count = 0
 
-        _, iam_stubber = await create_stubbed_client("iam")
-        iam_stubber.add_response(
-            "create_open_id_connect_provider",
-            {"OpenIDConnectProviderArn": ("arn:aws:iam::123456789012:oidc-provider/example.com")},
-        )
-        iam_stubber.add_response(
-            "create_role",
-            {
-                "Role": {
-                    "Path": "/",
-                    "RoleName": "GroundworkAdmin-DO-NOT-DELETE",
-                    "RoleId": "AROAIOSFODNN7EXAMPLE",
-                    "Arn": ("arn:aws:iam::123456789012:role/GroundworkAdmin-DO-NOT-DELETE"),
-                    "CreateDate": datetime(2025, 1, 1),
-                    "AssumeRolePolicyDocument": "{}",
-                }
-            },
-        )
-        iam_stubber.add_response("attach_role_policy", {})
-        iam_stubber.activate()
-
-        mgmt_session = _stubbed_session({"sts": sts_stubber})
-        target_session = _stubbed_session({"iam": iam_stubber})
+        async def mock_get_status(account_id):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                return {"deployed": False, "status": "OUTDATED", "detailed_status": "RUNNING"}
+            return {"deployed": True, "status": "CURRENT", "detailed_status": "SUCCEEDED"}
 
         with (
-            patch.object(aws, "get_session", return_value=mgmt_session),
-            patch.object(aws, "get_oidc_thumbprint", new_callable=AsyncMock) as mock_thumb,
-            patch("backend.services.aws.aioboto3") as mock_aioboto3,
-            patch.object(settings, "oidc_issuer_url", OIDC_ISSUER),
-            patch.object(settings, "oidc_client_id", OIDC_CLIENT_ID),
-            patch.object(settings, "aws_management_account_id", MGMT_ACCOUNT_ID),
+            patch.object(aws, "ensure_bootstrap_stackset", new_callable=AsyncMock),
+            patch.object(aws, "get_stack_instance_status", side_effect=mock_get_status),
+            patch("backend.services.aws.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
+            patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
         ):
-            mock_thumb.return_value = "abcdef1234567890abcdef1234567890abcdef12"
-            mock_aioboto3.Session.return_value = target_session
-
             result = await aws.bootstrap_account("123456789012")
 
-        assert result["oidc_provider_arn"] == "arn:aws:iam::123456789012:oidc-provider/example.com"
-        assert (
-            result["admin_role_arn"]
-            == "arn:aws:iam::123456789012:role/GroundworkAdmin-DO-NOT-DELETE"
+        assert result["oidc_provider_arn"] == (
+            "arn:aws:iam::123456789012:oidc-provider/idp.example.com"
         )
-        sts_stubber.assert_no_pending_responses()
-        iam_stubber.assert_no_pending_responses()
+        assert result["admin_role_arn"] == (
+            "arn:aws:iam::123456789012:role/GroundworkAdmin-DO-NOT-DELETE"
+        )
+        assert call_count == 3
+
+    async def test_bootstrap_triggers_deploy_when_not_found(self):
+        """If stack instance is NOT_FOUND, triggers manual deploy then polls."""
+        first_call = True
+
+        async def mock_get_status(account_id):
+            nonlocal first_call
+            if first_call:
+                first_call = False
+                return {"deployed": False, "status": "NOT_FOUND", "detailed_status": "NOT_FOUND"}
+            return {"deployed": True, "status": "CURRENT", "detailed_status": "SUCCEEDED"}
+
+        with (
+            patch.object(aws, "ensure_bootstrap_stackset", new_callable=AsyncMock),
+            patch.object(aws, "get_stack_instance_status", side_effect=mock_get_status),
+            patch.object(aws, "deploy_to_account", new_callable=AsyncMock) as mock_deploy,
+            patch("backend.services.aws.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
+            patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
+        ):
+            mock_deploy.return_value = "op-123"
+            result = await aws.bootstrap_account("123456789012", ou_id="ou-abc1")
+
+        mock_deploy.assert_called_once_with("123456789012", "ou-abc1")
+        assert result["oidc_provider_arn"] is not None
+
+    async def test_bootstrap_times_out(self):
+        """Raises RuntimeError if stack never deploys within timeout."""
+
+        async def mock_get_status(account_id):
+            return {"deployed": False, "status": "OUTDATED", "detailed_status": "RUNNING"}
+
+        with (
+            patch.object(aws, "ensure_bootstrap_stackset", new_callable=AsyncMock),
+            patch.object(aws, "get_stack_instance_status", side_effect=mock_get_status),
+            patch("backend.services.aws.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
+            patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await aws.bootstrap_account("123456789012")
+
+    async def test_bootstrap_fails_on_stack_failure(self):
+        """Raises RuntimeError if stack instance reports FAILED."""
+
+        async def mock_get_status(account_id):
+            return {"deployed": False, "status": "INOPERABLE", "detailed_status": "FAILED"}
+
+        with (
+            patch.object(aws, "ensure_bootstrap_stackset", new_callable=AsyncMock),
+            patch.object(aws, "get_stack_instance_status", side_effect=mock_get_status),
+            patch("backend.services.aws.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
+            patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
+        ):
+            with pytest.raises(RuntimeError, match="failed"):
+                await aws.bootstrap_account("123456789012")
 
 
 class TestGetGroundworkSession:
@@ -471,3 +485,45 @@ class TestDeployToAccount:
 
         assert op_id == "op-manual-123"
         cfn_stubber.assert_no_pending_responses()
+
+
+class TestAssumeGroundworkAdminViaGW:
+    async def test_chains_through_groundwork_account(self):
+        """assume_groundwork_admin uses get_groundwork_session as base."""
+        _, sts_stubber = await create_stubbed_client("sts")
+        sts_stubber.add_response(
+            "assume_role",
+            {
+                "Credentials": {
+                    "AccessKeyId": "AKIATARGETEXAMPLE1",
+                    "SecretAccessKey": "secretTARGETkey1234567890example",
+                    "SessionToken": "tokenTARGET1234567890",
+                    "Expiration": datetime(2025, 1, 1),
+                },
+                "AssumedRoleUser": {
+                    "AssumedRoleId": "AROATARGET:GroundworkRoleMgmt",
+                    "Arn": "arn:aws:sts::123456789012:assumed-role/GroundworkAdmin/GroundworkRoleMgmt",
+                },
+            },
+            expected_params={
+                "RoleArn": "arn:aws:iam::123456789012:role/GroundworkAdmin-DO-NOT-DELETE",
+                "RoleSessionName": "GroundworkRoleMgmt",
+            },
+        )
+        sts_stubber.activate()
+
+        gw_session = _stubbed_session({"sts": sts_stubber})
+
+        with (
+            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch("backend.services.aws.aioboto3") as mock_aioboto3,
+            patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
+        ):
+            mock_gw.return_value = gw_session
+            await aws.assume_groundwork_admin("123456789012")
+
+        mock_gw.assert_called_once()
+        mock_aioboto3.Session.assert_called_once()
+        call_kwargs = mock_aioboto3.Session.call_args[1]
+        assert call_kwargs["aws_access_key_id"] == "AKIATARGETEXAMPLE1"
+        sts_stubber.assert_no_pending_responses()
