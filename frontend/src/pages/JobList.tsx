@@ -106,6 +106,8 @@ export default function JobList() {
           <SelectContent>
             <SelectItem value={ALL}>All types</SelectItem>
             <SelectItem value="provision_account">Provision Account</SelectItem>
+            <SelectItem value="sync_accounts">Sync Accounts</SelectItem>
+            <SelectItem value="bootstrap_account">Bootstrap Account</SelectItem>
             <SelectItem value="create_role">Create Role</SelectItem>
             <SelectItem value="update_role">Update Role</SelectItem>
             <SelectItem value="delete_role">Delete Role</SelectItem>
@@ -141,7 +143,7 @@ export default function JobList() {
               <TableRow key={job.id}>
                 <TableCell className="font-mono text-sm">{job.job_type}</TableCell>
                 <TableCell>
-                  {job.account_id ? accountMap.get(job.account_id) ?? job.account_id : '—'}
+                  {job.account_id ? accountMap.get(job.account_id) ?? job.account_id : 'Org-wide'}
                 </TableCell>
                 <TableCell>
                   <Badge variant={statusVariant(job.status)}>{job.status}</Badge>

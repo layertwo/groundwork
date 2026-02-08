@@ -31,3 +31,14 @@ export function listJobs(filters?: JobFilters): Promise<JobResponse[]> {
 export function getJob(id: string): Promise<JobResponse> {
   return apiFetch<JobResponse>(`/api/jobs/${id}`)
 }
+
+export interface JobCreate {
+  job_type: string
+}
+
+export function createJob(data: JobCreate): Promise<JobResponse> {
+  return apiFetch<JobResponse>('/api/jobs', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
