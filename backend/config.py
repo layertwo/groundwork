@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     aws_portfolio_id: str = ""
     aws_management_account_id: str = ""
+    aws_groundwork_account_id: str = ""
+    aws_groundwork_role_name: str = "GroundworkStackSetRole"
+    aws_org_root_id: str = ""
     admin_role_name: str = "GroundworkAdmin-DO-NOT-DELETE"
 
     # App
