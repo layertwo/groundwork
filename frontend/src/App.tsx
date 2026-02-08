@@ -10,6 +10,7 @@ import AccountDetail from '@/pages/AccountDetail'
 import AccountCreate from '@/pages/AccountCreate'
 import RoleCreate from '@/pages/RoleCreate'
 import JobList from '@/pages/JobList'
+import RoleTemplates from '@/pages/RoleTemplates'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +58,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <JobList />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/role-templates"
+                element={
+                  <ProtectedRoute>
+                    <RoleTemplates />
                   </ProtectedRoute>
                 }
               />

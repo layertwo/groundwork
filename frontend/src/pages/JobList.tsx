@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table'
 import { listJobs } from '@/api/jobs'
 import { listAccounts } from '@/api/accounts'
+import SearchInput from '@/components/SearchInput'
 
 const ALL = '__all__'
 
@@ -40,6 +41,7 @@ function formatDate(dateStr: string | null): string {
 export default function JobList() {
   const [statusFilter, setStatusFilter] = useState(ALL)
   const [typeFilter, setTypeFilter] = useState(ALL)
+  const [search, setSearch] = useState('')
 
   const filters = {
     ...(statusFilter !== ALL && { status: statusFilter }),
@@ -64,6 +66,20 @@ export default function JobList() {
   })
 
   const accountMap = new Map(accounts?.map((a) => [a.id, a.account_name]) ?? [])
+
+  const filteredJobs = useMemo(() => {
+    if (!jobs) return []
+    const q = search.toLowerCase()
+    if (!q) return jobs
+    return jobs.filter(
+      (j) =>
+        j.job_type.toLowerCase().includes(q) ||
+        j.status.toLowerCase().includes(q) ||
+        (j.account_id
+          ? (accountMap.get(j.account_id) ?? j.account_id) : ''
+        ).toLowerCase().includes(q)
+    )
+  }, [jobs, search, accountMap])
 
   return (
     <div className="space-y-4">
@@ -97,10 +113,18 @@ export default function JobList() {
         </Select>
       </div>
 
+      <SearchInput
+        placeholder="Search jobs..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+
       {isLoading ? (
         <div className="text-muted-foreground">Loading jobs...</div>
       ) : !jobs?.length ? (
         <div className="text-muted-foreground">No jobs found.</div>
+      ) : filteredJobs.length === 0 ? (
+        <div className="text-muted-foreground">No jobs match your search.</div>
       ) : (
         <Table>
           <TableHeader>
@@ -113,7 +137,7 @@ export default function JobList() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {jobs.map((job) => (
+            {filteredJobs.map((job) => (
               <TableRow key={job.id}>
                 <TableCell className="font-mono text-sm">{job.job_type}</TableCell>
                 <TableCell>
