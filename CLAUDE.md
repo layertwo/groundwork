@@ -53,7 +53,7 @@ All 7 models are re-exported from `backend/models/__init__.py` (required for Ale
 - `get_session()` — default session (Groundwork account); used for all AWS API calls (Organizations via delegation policy, StackSets via `CallAs="DELEGATED_ADMIN"`, STS for role assumption)
 - `ensure_bootstrap_stackset()` — idempotent creation of service-managed StackSet with auto-deploy
 - `bootstrap_account()` — polls StackSet deployment status, triggers manual deploy if needed
-- `assume_groundwork_admin()` — chains through Groundwork account to assume admin role in member accounts
+- `assume_groundwork_admin()` — assumes admin role in member accounts for IAM management
 
 **Exception hierarchy:** `GroundworkError` base class with `NotFoundError(404)`, `UnauthorizedError(401)`, `ForbiddenError(403)`, `ConflictError(409)`, `NotImplementedHttpError(501)`. Handlers registered in `main.py` return `{"detail": message}`.
 
