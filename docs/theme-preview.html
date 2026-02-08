@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Groundwork Theme Preview</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    color: #d4d4d4;
+    min-height: 100vh;
+    background: #161616;
+  }
+
+  .layout {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 240px;
+    background: #1a1a1a;
+    border-right: 1px solid rgba(255,255,255,0.07);
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+  }
+
+  .sidebar-header {
+    padding: 20px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .sidebar-header svg {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+  }
+
+  .sidebar-header span {
+    font-size: 15px;
+    font-weight: 600;
+    color: #d4d4d4;
+  }
+
+  .sidebar-nav {
+    padding: 12px 8px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    text-decoration: none;
+    color: #737373;
+  }
+
+  .nav-item:hover {
+    background: rgba(255,255,255,0.05);
+    color: #a3a3a3;
+  }
+
+  .nav-item.active {
+    background: rgba(255,255,255,0.06);
+    color: #e5e5e5;
+  }
+
+  .nav-item.active svg {
+    color: #047857;
+  }
+
+  .nav-item svg {
+    width: 17px;
+    height: 17px;
+    flex-shrink: 0;
+  }
+
+  .sidebar-footer {
+    padding: 12px 8px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #737373;
+    cursor: pointer;
+  }
+
+  .user-info:hover {
+    background: rgba(255,255,255,0.05);
+  }
+
+  .user-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #262626;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: #a3a3a3;
+  }
+
+  /* Main Content */
+  .main {
+    flex: 1;
+    padding: 32px 40px;
+    overflow-y: auto;
+  }
+
+  .page-header {
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .page-header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #e5e5e5;
+  }
+
+  .btn-primary {
+    background: #047857;
+    color: white;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .btn-primary:hover {
+    background: #065f46;
+  }
+
+  /* Card / Table */
+  .card {
+    background: #1a1a1a;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th {
+    text-align: left;
+    padding: 11px 16px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #525252;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+
+  td {
+    padding: 13px 16px;
+    font-size: 13.5px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: #a3a3a3;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  tr:hover td {
+    background: rgba(255,255,255,0.02);
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .badge-active {
+    background: rgba(4, 120, 87, 0.15);
+    color: #059669;
+  }
+
+  .badge-pending {
+    background: rgba(234, 179, 8, 0.1);
+    color: #fbbf24;
+  }
+
+  .aws-id {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12.5px;
+    color: #525252;
+  }
+
+  .link {
+    color: #d4d4d4;
+    text-decoration: none;
+  }
+
+  .link:hover {
+    color: #e5e5e5;
+    text-decoration: underline;
+  }
+
+  .action-link {
+    color: #737373;
+    text-decoration: none;
+    font-size: 13px;
+  }
+
+  .action-link:hover {
+    color: #a3a3a3;
+  }
+
+  /* Version label */
+  .preview-label {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    background: #262626;
+    color: #525252;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <svg viewBox="0 0 512 512" width="28" height="28">
+          <defs>
+            <linearGradient id="g1" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" style="stop-color:#34d399" />
+              <stop offset="100%" style="stop-color:#059669" />
+            </linearGradient>
+            <linearGradient id="g2" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" style="stop-color:#059669" />
+              <stop offset="100%" style="stop-color:#047857" />
+            </linearGradient>
+            <linearGradient id="g3" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" style="stop-color:#047857" />
+              <stop offset="100%" style="stop-color:#065f46" />
+            </linearGradient>
+          </defs>
+          <path d="M256 100 L436 180 L256 260 L76 180 Z" fill="url(#g1)" />
+          <path d="M76 230 L256 310 L436 230 L436 280 L256 360 L76 280 Z" fill="url(#g2)" />
+          <path d="M76 330 L256 410 L436 330 L436 380 L256 460 L76 380 Z" fill="url(#g3)" />
+          <path d="M256 150 C240 150 228 162 228 178 C228 189 234 198 244 203 L240 230 L272 230 L268 203 C278 198 284 189 284 178 C284 162 272 150 256 150 Z" fill="#161616" opacity="0.85" />
+        </svg>
+        <span>Groundwork</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a class="nav-item active" href="#">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+            <path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/>
+          </svg>
+          Accounts
+        </a>
+        <a class="nav-item" href="#">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
+          </svg>
+          Role Templates
+        </a>
+        <a class="nav-item" href="#">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>
+          </svg>
+          Jobs
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-info">
+          <div class="user-avatar">LR</div>
+          <span>lucas.ross</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <div class="main">
+      <div class="page-header">
+        <h1>Accounts</h1>
+        <button class="btn-primary">+ New Account</button>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>AWS Account ID</th>
+              <th>OU</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a class="link" href="#">production-workloads</a></td>
+              <td><span class="aws-id">123456789012</span></td>
+              <td>ou-prod</td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><a class="action-link" href="#">Federate</a></td>
+            </tr>
+            <tr>
+              <td><a class="link" href="#">staging-platform</a></td>
+              <td><span class="aws-id">234567890123</span></td>
+              <td>ou-staging</td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><a class="action-link" href="#">Federate</a></td>
+            </tr>
+            <tr>
+              <td><a class="link" href="#">dev-sandbox</a></td>
+              <td><span class="aws-id">345678901234</span></td>
+              <td>ou-dev</td>
+              <td><span class="badge badge-pending">Provisioning</span></td>
+              <td><span style="color: #404040">Pending...</span></td>
+            </tr>
+            <tr>
+              <td><a class="link" href="#">security-audit</a></td>
+              <td><span class="aws-id">456789012345</span></td>
+              <td>ou-security</td>
+              <td><span class="badge badge-active">Active</span></td>
+              <td><a class="action-link" href="#">Federate</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="preview-label">THEME PREVIEW</div>
+</body>
+</html>
