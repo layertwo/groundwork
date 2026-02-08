@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     aws_groundwork_account_id: str = Field(default="", pattern=r"^$|^[0-9]{12}$")
     aws_org_root_id: str = Field(default="", pattern=r"^$|^r-[a-z0-9]{4,32}$")
+    aws_management_role_arn: str = ""
     admin_role_name: str = "GroundworkAdmin-DO-NOT-DELETE"
 
     # App
