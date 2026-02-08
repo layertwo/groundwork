@@ -1,25 +1,65 @@
+import asyncio
 from typing import Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
-from backend.dependencies.auth import get_current_user
-from backend.exceptions import NotFoundError
+from backend.dependencies.auth import get_current_admin, get_current_user
+from backend.exceptions import ConflictError, GroundworkError, NotFoundError
 from backend.models.job import Job
 from backend.models.user import User
-from backend.schemas.job import JobResponse
+from backend.schemas.job import JobCreate, JobResponse
+from backend.services.jobs import execute_job
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+
+ALLOWED_JOB_TYPES = {"sync_accounts"}
+
+
+@router.post("", response_model=JobResponse, status_code=201)
+async def create_job(
+    body: JobCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    if body.job_type not in ALLOWED_JOB_TYPES:
+        raise GroundworkError(f"Unsupported job type: {body.job_type}", status_code=400)
+
+    # Prevent duplicate sync jobs
+    existing = await db.execute(
+        select(Job).where(
+            Job.job_type == body.job_type,
+            Job.status.in_(["pending", "in_progress"]),
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise ConflictError(f"A {body.job_type} job is already running")
+
+    job = Job(
+        job_type=body.job_type,
+        status="pending",
+        started_by=admin.id,
+    )
+    db.add(job)
+    await db.flush()
+    await db.refresh(job)
+
+    task = asyncio.create_task(execute_job(job.id))
+    request.app.state.background_tasks.add(task)
+    task.add_done_callback(request.app.state.background_tasks.discard)
+
+    return job
 
 
 @router.get("", response_model=list[JobResponse])
 async def list_jobs(
     account_id: Optional[UUID] = Query(None),
     status: Optional[Literal["pending", "in_progress", "completed", "failed"]] = Query(None),
-    job_type: Optional[Literal["provision_account"]] = Query(None),
+    job_type: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

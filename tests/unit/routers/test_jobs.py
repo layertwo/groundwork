@@ -1,6 +1,7 @@
 """Tests for jobs router."""
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, patch
 
 from backend.dependencies.auth import SESSION_COOKIE, sign_session_id
 from backend.models.account import Account
@@ -213,3 +214,73 @@ class TestGetJob:
         response = await client.get(f"/api/jobs/{fake_id}", cookies=_cookies(session_id))
 
         assert response.status_code == 404
+
+
+class TestCreateJob:
+    async def test_create_sync_accounts_job(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        with patch("backend.routers.jobs.execute_job", new_callable=AsyncMock):
+            response = await client.post(
+                "/api/jobs",
+                json={"job_type": "sync_accounts"},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["job_type"] == "sync_accounts"
+        assert data["status"] == "pending"
+        assert data["account_id"] is None
+        assert data["started_by"] == str(admin.id)
+
+    async def test_create_job_unsupported_type_returns_400(self, client, db_session):
+        _, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        response = await client.post(
+            "/api/jobs",
+            json={"job_type": "nonexistent_type"},
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 400
+
+    async def test_create_job_non_admin_returns_403(self, client, db_session):
+        _, user_session = await _create_authenticated_user(db_session, is_admin=False)
+
+        response = await client.post(
+            "/api/jobs",
+            json={"job_type": "sync_accounts"},
+            cookies=_cookies(user_session),
+        )
+
+        assert response.status_code == 403
+
+    async def test_create_job_rejects_duplicate_pending_sync(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        # Create an in-progress sync job
+        db_session.add(
+            Job(
+                job_type="sync_accounts",
+                status="in_progress",
+                started_by=admin.id,
+            )
+        )
+        await db_session.flush()
+
+        response = await client.post(
+            "/api/jobs",
+            json={"job_type": "sync_accounts"},
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 409
+
+    async def test_create_job_unauthenticated_returns_401(self, client):
+        response = await client.post(
+            "/api/jobs",
+            json={"job_type": "sync_accounts"},
+        )
+
+        assert response.status_code == 401

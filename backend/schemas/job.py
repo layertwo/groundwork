@@ -2,7 +2,11 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class JobCreate(BaseModel):
+    job_type: str = Field(min_length=1, max_length=64)
 
 
 class JobResponse(BaseModel):
