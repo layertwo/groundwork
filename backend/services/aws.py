@@ -35,31 +35,6 @@ def get_session() -> aioboto3.Session:
     return _session
 
 
-async def get_groundwork_session() -> aioboto3.Session:
-    """Assume a role in the Groundwork account and return a session.
-
-    Used for StackSet management and as the base session for assuming
-    GroundworkAdmin roles in member accounts.
-    """
-    session = get_session()
-    role_arn = (
-        f"arn:aws:iam::{settings.aws_groundwork_account_id}"
-        f":role/{settings.aws_groundwork_role_name}"
-    )
-    async with session.client("sts") as sts:
-        assumed = await sts.assume_role(
-            RoleArn=role_arn,
-            RoleSessionName="GroundworkStackSet",
-        )
-    creds = assumed["Credentials"]
-    return aioboto3.Session(
-        aws_access_key_id=creds["AccessKeyId"],
-        aws_secret_access_key=creds["SecretAccessKey"],
-        aws_session_token=creds["SessionToken"],
-        region_name=settings.aws_region,
-    )
-
-
 async def create_account(account_name: str, account_email: str) -> str:
     """Create an AWS account via Organizations.
 
@@ -211,13 +186,11 @@ async def _fetch_server_cert(hostname: str, port: int, ctx: ssl.SSLContext) -> b
 async def assume_groundwork_admin(aws_account_id: str) -> aioboto3.Session:
     """Assume the admin management role in a target account.
 
-    Chains through the Groundwork account (since the admin role trusts
-    the Groundwork account, not the management account).
     Returns an aioboto3 Session configured with the temporary credentials.
     """
-    gw_session = await get_groundwork_session()
+    session = get_session()
     role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
-    async with gw_session.client("sts") as sts:
+    async with session.client("sts") as sts:
         assumed = await sts.assume_role(
             RoleArn=role_arn,
             RoleSessionName="GroundworkRoleMgmt",
@@ -519,8 +492,8 @@ async def get_stack_instance_status(aws_account_id: str) -> dict:
     - status: str — CURRENT, OUTDATED, INOPERABLE, or NOT_FOUND
     - detailed_status: str — SUCCEEDED, PENDING, RUNNING, FAILED, etc.
     """
-    gw_session = await get_groundwork_session()
-    async with gw_session.client("cloudformation") as cfn:
+    session = get_session()
+    async with session.client("cloudformation") as cfn:
         try:
             resp = await cfn.describe_stack_instance(
                 StackSetName=BOOTSTRAP_STACKSET_NAME,
@@ -547,8 +520,8 @@ async def deploy_to_account(aws_account_id: str, ou_id: str) -> str:
     Uses INTERSECTION filter to target a single account within its OU.
     Returns the StackSet operation ID for tracking.
     """
-    gw_session = await get_groundwork_session()
-    async with gw_session.client("cloudformation") as cfn:
+    session = get_session()
+    async with session.client("cloudformation") as cfn:
         resp = await cfn.create_stack_instances(
             StackSetName=BOOTSTRAP_STACKSET_NAME,
             DeploymentTargets={
@@ -571,9 +544,9 @@ async def ensure_bootstrap_stackset() -> None:
     the entire organization. Idempotent — skips creation if the StackSet
     already exists.
     """
-    gw_session = await get_groundwork_session()
+    session = get_session()
 
-    async with gw_session.client("cloudformation") as cfn:
+    async with session.client("cloudformation") as cfn:
         # Check if StackSet already exists
         try:
             await cfn.describe_stack_set(
