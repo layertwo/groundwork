@@ -1,0 +1,7 @@
+.venv
+.worktrees
+.git
+.claude
+__pycache__
+node_modules
+*.pyc

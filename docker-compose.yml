@@ -9,6 +9,11 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U groundwork"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
 
   app:
     build: .
@@ -16,8 +21,11 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      GW_DATABASE_URL: postgresql+asyncpg://groundwork:groundwork@db:5432/groundwork
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:
