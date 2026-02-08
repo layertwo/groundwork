@@ -5,13 +5,13 @@
 | Name                                 |    Stmts |     Miss |   Branch |   BrPart |   Cover |   Missing |
 |------------------------------------- | -------: | -------: | -------: | -------: | ------: | --------: |
 | backend/\_\_init\_\_.py              |        0 |        0 |        0 |        0 |    100% |           |
-| backend/config.py                    |       21 |        0 |        0 |        0 |    100% |           |
+| backend/config.py                    |       24 |        0 |        0 |        0 |    100% |           |
 | backend/database.py                  |       13 |        7 |        0 |        0 |     46% |     27-33 |
 | backend/dependencies/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100% |           |
 | backend/dependencies/auth.py         |      128 |       31 |       40 |       12 |     72% |63, 71, 85-105, 129-130, 140-143, 148->150, 160, 167, 174, 178, 183, 192->194 |
 | backend/dependencies/rate\_limit.py  |       20 |        2 |        2 |        1 |     86% |    19, 33 |
 | backend/exceptions.py                |       32 |        3 |        0 |        0 |     91% | 38, 51-52 |
-| backend/main.py                      |       60 |       12 |        8 |        3 |     75% |36-47, 74, 88, 118 |
+| backend/main.py                      |       60 |       14 |        8 |        3 |     72% |36-47, 74, 88, 110-111, 118 |
 | backend/models/\_\_init\_\_.py       |        8 |        0 |        0 |        0 |    100% |           |
 | backend/models/account.py            |       21 |        0 |        0 |        0 |    100% |           |
 | backend/models/audit.py              |       21 |        0 |        0 |        0 |    100% |           |
@@ -36,11 +36,11 @@
 | backend/schemas/role\_template.py    |       32 |        0 |       10 |        0 |    100% |           |
 | backend/services/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100% |           |
 | backend/services/audit.py            |        6 |        0 |        0 |        0 |    100% |           |
-| backend/services/aws.py              |      169 |       48 |       48 |        1 |     65% |31-33, 178-190, 195-202, 314->321, 338-397 |
+| backend/services/aws.py              |      221 |       48 |       60 |        3 |     73% |33-35, 181-193, 198-203, 317->324, 341-398, 534, 587 |
 | backend/services/crypto.py           |       13 |        0 |        0 |        0 |    100% |           |
-| backend/services/jobs.py             |      214 |      133 |       26 |        4 |     39% |29-62, 85-90, 119->108, 122, 179-245, 250-311, 316-366, 381 |
+| backend/services/jobs.py             |      216 |      134 |       28 |        5 |     39% |29-62, 85-90, 119->108, 122, 181-247, 252-313, 318-368, 380, 385 |
 | backend/services/oidc.py             |       78 |       26 |        4 |        0 |     68% |57-68, 93-123, 127-138 |
-| **TOTAL**                            | **1465** |  **294** |  **252** |   **47** | **78%** |           |
+| **TOTAL**                            | **1522** |  **297** |  **266** |   **50** | **78%** |           |
 
 
 ## Setup coverage badge
