@@ -533,6 +533,61 @@ async def get_console_url(
 BOOTSTRAP_STACKSET_NAME = "groundwork-bootstrap"
 
 
+async def get_stack_instance_status(aws_account_id: str) -> dict:
+    """Check whether the bootstrap StackSet has deployed to an account.
+
+    Returns dict with:
+    - deployed: bool — True if stack instance is CURRENT + SUCCEEDED
+    - status: str — CURRENT, OUTDATED, INOPERABLE, or NOT_FOUND
+    - detailed_status: str — SUCCEEDED, PENDING, RUNNING, FAILED, etc.
+    """
+    from botocore.exceptions import ClientError
+
+    gw_session = await get_groundwork_session()
+    async with gw_session.client("cloudformation") as cfn:
+        try:
+            resp = await cfn.describe_stack_instance(
+                StackSetName=BOOTSTRAP_STACKSET_NAME,
+                StackInstanceAccount=aws_account_id,
+                StackInstanceRegion=settings.aws_region,
+                CallAs="DELEGATED_ADMIN",
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "StackInstanceNotFoundException":
+                return {"deployed": False, "status": "NOT_FOUND", "detailed_status": "NOT_FOUND"}
+            raise
+
+        instance = resp["StackInstance"]
+        status = instance.get("Status", "UNKNOWN")
+        detailed = instance.get("StackInstanceStatus", {}).get("DetailedStatus", "UNKNOWN")
+        deployed = status == "CURRENT" and detailed == "SUCCEEDED"
+
+        return {"deployed": deployed, "status": status, "detailed_status": detailed}
+
+
+async def deploy_to_account(aws_account_id: str, ou_id: str) -> str:
+    """Manually deploy the bootstrap StackSet to a specific account.
+
+    Uses INTERSECTION filter to target a single account within its OU.
+    Returns the StackSet operation ID for tracking.
+    """
+    gw_session = await get_groundwork_session()
+    async with gw_session.client("cloudformation") as cfn:
+        resp = await cfn.create_stack_instances(
+            StackSetName=BOOTSTRAP_STACKSET_NAME,
+            DeploymentTargets={
+                "OrganizationalUnitIds": [ou_id],
+                "AccountFilterType": "INTERSECTION",
+                "Accounts": [aws_account_id],
+            },
+            Regions=[settings.aws_region],
+            CallAs="DELEGATED_ADMIN",
+        )
+    op_id = resp["OperationId"]
+    logger.info("Triggered manual deploy to account %s: operation=%s", aws_account_id, op_id)
+    return op_id
+
+
 async def ensure_bootstrap_stackset() -> None:
     """Create the bootstrap StackSet if it doesn't exist.
 

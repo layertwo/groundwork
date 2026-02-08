@@ -373,3 +373,101 @@ class TestEnsureBootstrapStackset:
             await aws.ensure_bootstrap_stackset()
 
         cfn_stubber.assert_no_pending_responses()
+
+
+class TestGetStackInstanceStatus:
+    async def test_returns_succeeded_when_current(self):
+        _, cfn_stubber = await create_stubbed_client("cloudformation")
+        cfn_stubber.add_response(
+            "describe_stack_instance",
+            {
+                "StackInstance": {
+                    "StackSetId": "ss-123",
+                    "Account": "123456789012",
+                    "Region": "us-east-1",
+                    "Status": "CURRENT",
+                    "StackInstanceStatus": {"DetailedStatus": "SUCCEEDED"},
+                }
+            },
+        )
+        cfn_stubber.activate()
+        mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
+
+        with (
+            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(settings, "aws_region", "us-east-1"),
+        ):
+            mock_gw.return_value = mock_gw_session
+            result = await aws.get_stack_instance_status("123456789012")
+
+        assert result["status"] == "CURRENT"
+        assert result["detailed_status"] == "SUCCEEDED"
+        assert result["deployed"] is True
+
+    async def test_returns_not_found_when_instance_missing(self):
+        _, cfn_stubber = await create_stubbed_client("cloudformation")
+        cfn_stubber.add_client_error(
+            "describe_stack_instance",
+            service_error_code="StackInstanceNotFoundException",
+            service_message="Instance not found",
+        )
+        cfn_stubber.activate()
+        mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
+
+        with (
+            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(settings, "aws_region", "us-east-1"),
+        ):
+            mock_gw.return_value = mock_gw_session
+            result = await aws.get_stack_instance_status("123456789012")
+
+        assert result["deployed"] is False
+        assert result["status"] == "NOT_FOUND"
+
+    async def test_returns_pending_when_running(self):
+        _, cfn_stubber = await create_stubbed_client("cloudformation")
+        cfn_stubber.add_response(
+            "describe_stack_instance",
+            {
+                "StackInstance": {
+                    "StackSetId": "ss-123",
+                    "Account": "123456789012",
+                    "Region": "us-east-1",
+                    "Status": "OUTDATED",
+                    "StackInstanceStatus": {"DetailedStatus": "RUNNING"},
+                }
+            },
+        )
+        cfn_stubber.activate()
+        mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
+
+        with (
+            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(settings, "aws_region", "us-east-1"),
+        ):
+            mock_gw.return_value = mock_gw_session
+            result = await aws.get_stack_instance_status("123456789012")
+
+        assert result["deployed"] is False
+        assert result["detailed_status"] == "RUNNING"
+
+
+class TestDeployToAccount:
+    async def test_creates_stack_instance_for_account(self):
+        _, cfn_stubber = await create_stubbed_client("cloudformation")
+        cfn_stubber.add_response(
+            "create_stack_instances",
+            {"OperationId": "op-manual-123"},
+        )
+        cfn_stubber.activate()
+        mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
+
+        with (
+            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(settings, "aws_region", "us-east-1"),
+        ):
+            mock_gw.return_value = mock_gw_session
+            op_id = await aws.deploy_to_account("123456789012", "ou-abc1-12345678")
+
+        assert op_id == "op-manual-123"
+        cfn_stubber.assert_no_pending_responses()
