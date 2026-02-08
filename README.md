@@ -12,7 +12,7 @@ Groundwork lets your team provision AWS accounts on demand and manage who can ac
 
 ## Features
 
-- **One-click account provisioning** — Create new AWS accounts through AWS Organizations. Groundwork automatically bootstraps each account with an OIDC identity provider and management role.
+- **One-click account provisioning** — Create new AWS accounts through AWS Organizations. A CloudFormation StackSet automatically bootstraps each account with an OIDC identity provider and management role.
 - **Role templates and custom roles** — Spin up IAM roles from predefined templates (Admin, ReadOnly, PowerUser) or define custom roles with specific managed policies and inline policies. Assign access by group or individual user.
 - **Federated access** — Users assume roles with their identity provider credentials. No long-lived AWS keys. Temporary API credentials and console sessions are generated on demand with configurable durations.
 - **Dual-layer access control** — Access is enforced at both the application layer (group/user checks) and the IAM trust policy layer (aud + groups/sub conditions). Defense in depth, not just a UI gate.
@@ -20,13 +20,14 @@ Groundwork lets your team provision AWS accounts on demand and manage who can ac
 
 ## How it works
 
-1. Admin creates an AWS account in Groundwork — Organizations provisions it, Groundwork bootstraps OIDC + management role
+1. Admin creates an AWS account in Groundwork — Organizations provisions it, a CloudFormation StackSet automatically bootstraps OIDC + management role
 2. Admin creates roles on the account (from templates or custom) and assigns groups/users
 3. Users sign in via SSO, see the roles they can access, and click to get temporary AWS credentials or open the console
 
 ## Prerequisites
 
 - **AWS Organization** — Groundwork creates accounts via AWS Organizations, so you need an existing organization with the management account.
+- **Dedicated Groundwork AWS account** — A member account registered as a **delegated administrator for CloudFormation StackSets**. Groundwork uses StackSets to bootstrap OIDC providers and management roles into member accounts without assuming the org admin role.
 - **OIDC identity provider** — Any OpenID Connect provider that supports the Authorization Code flow (Okta, Entra ID, Google Workspace, Keycloak, etc.).
 - **PostgreSQL 16+** — Used for storing accounts, roles, sessions, and audit logs.
 - **Python 3.14+** — Required for the backend.
@@ -35,9 +36,11 @@ Groundwork lets your team provision AWS accounts on demand and manage who can ac
 
 ### 1. AWS permissions
 
-Groundwork runs as an IAM principal in your **management account**. It needs permissions to create accounts via Organizations and to assume roles into member accounts for bootstrapping and ongoing management.
+Groundwork requires two sets of AWS permissions: one in the **management account** (for Organizations API) and one in a **dedicated Groundwork account** (for CloudFormation StackSets and member account management).
 
-Create an IAM role (or user, for local development) with the following policy:
+#### Management account role
+
+The service needs Organizations permissions to create and manage accounts. Create an IAM role with:
 
 ```json
 {
@@ -53,40 +56,62 @@ Create an IAM role (or user, for local development) with the following policy:
         "organizations:MoveAccount"
       ],
       "Resource": "*"
-    },
-    {
-      "Sid": "AssumeIntoMemberAccounts",
-      "Effect": "Allow",
-      "Action": "sts:AssumeRole",
-      "Resource": [
-        "arn:aws:iam::*:role/OrganizationAccountAccessRole",
-        "arn:aws:iam::*:role/GroundworkAdmin-DO-NOT-DELETE"
-      ]
     }
   ]
 }
 ```
 
-**How Groundwork uses these permissions:**
+#### Groundwork account setup
 
-| Permission | Purpose |
-|---|---|
-| `organizations:CreateAccount` | Provision new AWS accounts |
-| `organizations:DescribeCreateAccountStatus` | Poll account creation progress |
-| `organizations:ListRoots` / `MoveAccount` | Move new accounts into a target OU |
-| `sts:AssumeRole` → `OrganizationAccountAccessRole` | Initial bootstrap of new accounts (create OIDC provider + management role) |
-| `sts:AssumeRole` → `GroundworkAdmin-DO-NOT-DELETE` | Ongoing IAM role management in member accounts |
+Create a dedicated AWS account for Groundwork and register it as a **delegated administrator for CloudFormation StackSets** in your organization:
 
-**Trust policy for the Groundwork role** depends on how you run it:
+```bash
+aws organizations register-delegated-administrator \
+  --account-id <groundwork-account-id> \
+  --service-principal member.org.stacksets.cloudformation.amazonaws.com
+```
 
-- **EC2 instance profile** — set the principal to the EC2 service (`"Service": "ec2.amazonaws.com"`)
-- **ECS task role** — set the principal to the ECS task service (`"Service": "ecs-tasks.amazonaws.com"`)
-- **IAM user (local dev)** — set the principal to the user ARN (`"AWS": "arn:aws:iam::<mgmt-account-id>:user/<username>"`)
+Create a `GroundworkStackSetRole` (or custom name) in this account with permissions for CloudFormation StackSets and cross-account role assumption:
 
-**What Groundwork creates in member accounts:** During account bootstrap, Groundwork assumes `OrganizationAccountAccessRole` (created automatically by AWS Organizations) and sets up two resources:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageStackSets",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateStackSet",
+        "cloudformation:DescribeStackSet",
+        "cloudformation:CreateStackInstances",
+        "cloudformation:DescribeStackInstance"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AssumeAdminInMemberAccounts",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/GroundworkAdmin-DO-NOT-DELETE"
+    }
+  ]
+}
+```
+
+The trust policy for this role should allow the principal that runs the Groundwork service (e.g., your Kubernetes service account via OIDC federation, an EC2 instance profile, or an IAM user for local dev).
+
+#### How it works
+
+| Step | Account | What happens |
+|---|---|---|
+| Account creation | Management | Organizations API creates the account and moves it to a target OU |
+| Account bootstrap | Groundwork (delegated admin) | A service-managed CloudFormation StackSet auto-deploys an OIDC provider and management role to all member accounts |
+| Role management | Groundwork → member account | Groundwork assumes `GroundworkAdmin-DO-NOT-DELETE` in the member account to create/update/delete user-facing IAM roles |
+
+**What Groundwork deploys via StackSets:** A service-managed StackSet with auto-deploy creates two resources in every member account:
 
 1. An **OIDC identity provider** — registers your IdP so IAM trust policies can validate tokens
-2. A **`GroundworkAdmin-DO-NOT-DELETE` role** — with `AdministratorAccess`, trusted by the management account. Groundwork uses this role for all subsequent IAM operations (creating/updating/deleting user-facing roles). You do not need to create this manually.
+2. A **`GroundworkAdmin-DO-NOT-DELETE` role** — with `AdministratorAccess`, trusted by the Groundwork account. Groundwork uses this role for all subsequent IAM operations. You do not need to create this manually.
 
 ### 2. Identity provider (OIDC)
 
@@ -107,7 +132,7 @@ Groundwork expects the following claims in the ID token:
 
 The `groups` claim is critical — Groundwork uses it to enforce role access at both the application layer and in IAM trust policy conditions. Make sure your IdP includes group memberships in the ID token.
 
-The OIDC issuer URL **must use HTTPS**. During account bootstrap, Groundwork fetches the TLS certificate from the issuer to compute a thumbprint for the AWS IAM OIDC provider registration.
+The OIDC issuer URL **must use HTTPS**. When creating the bootstrap StackSet, Groundwork fetches the TLS certificate from the issuer to compute a thumbprint for the AWS IAM OIDC provider registration.
 
 After registering, note your **issuer URL**, **client ID**, and **client secret** — you'll need them for configuration.
 
@@ -140,6 +165,8 @@ GW_OIDC_REDIRECT_URI=https://your-groundwork-url/api/auth/callback
 # AWS — from step 1
 GW_AWS_REGION=us-east-1
 GW_AWS_MANAGEMENT_ACCOUNT_ID=111122223333
+GW_AWS_GROUNDWORK_ACCOUNT_ID=444455556666
+GW_AWS_ORG_ROOT_ID=r-xxxx
 
 # App
 GW_APP_URL=https://your-groundwork-url
@@ -153,6 +180,9 @@ All settings use the `GW_` prefix. Optional settings with their defaults:
 | `GW_DB_POOL_SIZE` | `20` | Connection pool size |
 | `GW_DB_MAX_OVERFLOW` | `10` | Max overflow connections |
 | `GW_DB_POOL_RECYCLE` | `1800` | Connection recycle interval (seconds) |
+| `GW_AWS_GROUNDWORK_ACCOUNT_ID` | _(required)_ | 12-digit AWS account ID of the dedicated Groundwork account |
+| `GW_AWS_GROUNDWORK_ROLE_NAME` | `GroundworkStackSetRole` | IAM role to assume in the Groundwork account |
+| `GW_AWS_ORG_ROOT_ID` | _(required)_ | Organization root ID (e.g., `r-abc1`) for StackSet deployment |
 | `GW_ADMIN_ROLE_NAME` | `GroundworkAdmin-DO-NOT-DELETE` | Name of the management role created in member accounts |
 | `GW_APP_NAME` | `Groundwork` | Application display name |
 | `GW_DEBUG` | `false` | Enable debug mode (CORS for localhost:5173) |
