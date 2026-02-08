@@ -5,7 +5,7 @@
 | Name                                 |    Stmts |     Miss |   Branch |   BrPart |   Cover |   Missing |
 |------------------------------------- | -------: | -------: | -------: | -------: | ------: | --------: |
 | backend/\_\_init\_\_.py              |        0 |        0 |        0 |        0 |    100% |           |
-| backend/config.py                    |       23 |        0 |        0 |        0 |    100% |           |
+| backend/config.py                    |       21 |        0 |        0 |        0 |    100% |           |
 | backend/database.py                  |       13 |        7 |        0 |        0 |     46% |     27-33 |
 | backend/dependencies/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100% |           |
 | backend/dependencies/auth.py         |      128 |       31 |       40 |       12 |     72% |63, 71, 85-105, 129-130, 140-143, 148->150, 160, 167, 174, 178, 183, 192->194 |
@@ -36,11 +36,11 @@
 | backend/schemas/role\_template.py    |       32 |        0 |       10 |        0 |    100% |           |
 | backend/services/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100% |           |
 | backend/services/audit.py            |        6 |        0 |        0 |        0 |    100% |           |
-| backend/services/aws.py              |      221 |       48 |       60 |        3 |     73% |33-35, 181-193, 198-203, 317->324, 341-398, 534, 587 |
+| backend/services/aws.py              |      214 |       48 |       60 |        3 |     72% |33-35, 156-168, 173-178, 290->297, 314-371, 507, 560 |
 | backend/services/crypto.py           |       13 |        0 |        0 |        0 |    100% |           |
 | backend/services/jobs.py             |      216 |      134 |       28 |        5 |     39% |29-62, 85-90, 119->108, 122, 181-247, 252-313, 318-368, 380, 385 |
 | backend/services/oidc.py             |       78 |       26 |        4 |        0 |     68% |57-68, 93-123, 127-138 |
-| **TOTAL**                            | **1521** |  **297** |  **266** |   **50** | **78%** |           |
+| **TOTAL**                            | **1512** |  **297** |  **266** |   **50** | **78%** |           |
 
 
 ## Setup coverage badge
