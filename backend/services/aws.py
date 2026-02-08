@@ -527,6 +527,67 @@ async def get_console_url(
 
 
 # ---------------------------------------------------------------------------
+# StackSet bootstrap (Phase 2)
+# ---------------------------------------------------------------------------
+
+BOOTSTRAP_STACKSET_NAME = "groundwork-bootstrap"
+
+
+async def ensure_bootstrap_stackset() -> None:
+    """Create the bootstrap StackSet if it doesn't exist.
+
+    Uses service-managed permissions with auto-deploy enabled, targeting
+    the entire organization. Idempotent — skips creation if the StackSet
+    already exists.
+    """
+    from botocore.exceptions import ClientError
+
+    gw_session = await get_groundwork_session()
+
+    async with gw_session.client("cloudformation") as cfn:
+        # Check if StackSet already exists
+        try:
+            await cfn.describe_stack_set(
+                StackSetName=BOOTSTRAP_STACKSET_NAME,
+                CallAs="DELEGATED_ADMIN",
+            )
+            logger.info("Bootstrap StackSet already exists, skipping creation")
+            return
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "StackSetNotFoundException":
+                raise
+
+        # Compute thumbprint and generate template
+        thumbprint = await get_oidc_thumbprint(settings.oidc_issuer_url)
+        template_body = _build_bootstrap_template(
+            oidc_issuer_url=settings.oidc_issuer_url,
+            oidc_client_id=settings.oidc_client_id,
+            oidc_thumbprint=thumbprint,
+            groundwork_account_id=settings.aws_groundwork_account_id,
+            admin_role_name=settings.admin_role_name,
+        )
+
+        # Create the StackSet
+        await cfn.create_stack_set(
+            StackSetName=BOOTSTRAP_STACKSET_NAME,
+            Description="Groundwork bootstrap — OIDC provider and admin role",
+            TemplateBody=template_body,
+            PermissionModel="SERVICE_MANAGED",
+            AutoDeployment={"Enabled": True, "RetainStacksOnAccountRemoval": False},
+            CallAs="DELEGATED_ADMIN",
+        )
+
+        # Deploy to all existing accounts in the organization
+        await cfn.create_stack_instances(
+            StackSetName=BOOTSTRAP_STACKSET_NAME,
+            DeploymentTargets={"OrganizationalUnitIds": [settings.aws_org_root_id]},
+            Regions=[settings.aws_region],
+            CallAs="DELEGATED_ADMIN",
+        )
+        logger.info("Created bootstrap StackSet and deployed to org root")
+
+
+# ---------------------------------------------------------------------------
 # CloudFormation template builder (Phase 2 — StackSet bootstrap)
 # ---------------------------------------------------------------------------
 

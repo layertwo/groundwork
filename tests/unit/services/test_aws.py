@@ -315,3 +315,61 @@ class TestBuildBootstrapTemplate:
         parsed = json.loads(body)
         assert "OidcProviderArn" in parsed["Outputs"]
         assert "AdminRoleArn" in parsed["Outputs"]
+
+
+class TestEnsureBootstrapStackset:
+    async def test_creates_stackset_when_not_exists(self):
+        """When the StackSet doesn't exist, create it and deploy to org root."""
+        _, cfn_stubber = await create_stubbed_client("cloudformation")
+
+        # describe_stack_set raises StackSetNotFoundException
+        cfn_stubber.add_client_error(
+            "describe_stack_set",
+            service_error_code="StackSetNotFoundException",
+            service_message="StackSet not found",
+        )
+        cfn_stubber.add_response("create_stack_set", {"StackSetId": "ss-123"})
+        cfn_stubber.add_response("create_stack_instances", {"OperationId": "op-abc"})
+        cfn_stubber.activate()
+
+        mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
+
+        with (
+            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
+            patch.object(aws, "get_oidc_thumbprint", new_callable=AsyncMock) as mock_thumb,
+            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
+            patch.object(settings, "oidc_client_id", "gw-client"),
+            patch.object(settings, "aws_groundwork_account_id", "222233334444"),
+            patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
+            patch.object(settings, "aws_region", "us-east-1"),
+            patch.object(settings, "aws_org_root_id", "r-abc1"),
+        ):
+            mock_gw.return_value = mock_gw_session
+            mock_thumb.return_value = "a" * 40
+
+            await aws.ensure_bootstrap_stackset()
+
+        cfn_stubber.assert_no_pending_responses()
+
+    async def test_noop_when_stackset_exists(self):
+        """When the StackSet already exists, do nothing."""
+        _, cfn_stubber = await create_stubbed_client("cloudformation")
+        cfn_stubber.add_response(
+            "describe_stack_set",
+            {
+                "StackSet": {
+                    "StackSetName": "groundwork-bootstrap",
+                    "StackSetId": "ss-123",
+                    "Status": "ACTIVE",
+                }
+            },
+        )
+        cfn_stubber.activate()
+
+        mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
+
+        with (patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,):
+            mock_gw.return_value = mock_gw_session
+            await aws.ensure_bootstrap_stackset()
+
+        cfn_stubber.assert_no_pending_responses()
