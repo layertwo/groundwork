@@ -45,9 +45,16 @@ mypy backend/ tests/
 
 All 6 models are re-exported from `backend/models/__init__.py` (required for Alembic autogenerate).
 
-**Routers** are currently 501 stubs. Each returns `Response(status_code=501, content='{"detail":"Not implemented"}')`. Implementation is planned across 5 phases (see `docs/plans/`).
+**Routers** implement CRUD + auth endpoints across accounts, roles, jobs, auth, and role templates.
 
-**Services** (planned): `backend/services/` will contain `oidc.py` (OIDC auth), `aws.py` (IAM/STS/Organizations), `jobs.py` (background task executor), `audit.py` (audit logging).
+**Services:** `backend/services/` contains `oidc.py` (OIDC auth), `aws.py` (IAM/STS/Organizations/CloudFormation StackSets), `jobs.py` (background task executor), `audit.py` (audit logging).
+
+**AWS service layer (`backend/services/aws.py`):** Uses a dedicated Groundwork AWS account (delegated administrator for CloudFormation StackSets) rather than the management account for bootstrap operations. Key functions:
+- `get_session()` — default session for Organizations API calls (management account)
+- `get_groundwork_session()` — assumes role in Groundwork account for StackSet + admin operations
+- `ensure_bootstrap_stackset()` — idempotent creation of service-managed StackSet with auto-deploy
+- `bootstrap_account()` — polls StackSet deployment status, triggers manual deploy if needed
+- `assume_groundwork_admin()` — chains through Groundwork account to assume admin role in member accounts
 
 **Exception hierarchy:** `GroundworkError` base class with `NotFoundError(404)`, `ConflictError(409)`, `ForbiddenError(403)`. Handlers registered in `main.py` return `{"detail": message}`.
 
@@ -58,7 +65,7 @@ All 6 models are re-exported from `backend/models/__init__.py` (required for Ale
 Detailed plans in `docs/plans/`. Summary:
 
 1. **Phase 1 -- Auth**: OIDC login flow, session management, `get_current_user`/`get_current_admin` dependencies, role templates model + CRUD, audit helper
-2. **Phase 2 -- Account Provisioning**: Organizations account creation, OIDC provider + admin role bootstrap, job executor, account/job endpoints
+2. **Phase 2 -- Account Provisioning**: Organizations account creation, OIDC provider + admin role bootstrap via CloudFormation StackSets (service-managed, auto-deploy), job executor, account/job endpoints
 3. **Phase 3 -- Role Management**: IAM role CRUD (create/update/delete), trust policies with aud+groups+users conditions, role templates
 4. **Phase 4 -- Role Assumption**: `AssumeRoleWithWebIdentity`, console federation URLs, token refresh, dual-layer access control
 5. **Phase 5 -- React UI**: Vite + React + TypeScript frontend, auth context, account/role/job pages

@@ -103,17 +103,19 @@ class TestAssumeGroundworkAdmin:
         )
         sts_stubber.activate()
 
-        mgmt_session = _stubbed_session({"sts": sts_stubber})
+        gw_session = _stubbed_session({"sts": sts_stubber})
 
         with (
-            patch.object(aws, "get_session", return_value=mgmt_session),
+            patch.object(aws, "get_groundwork_session", new_callable=AsyncMock) as mock_gw,
             patch("backend.services.aws.aioboto3") as mock_aioboto3,
         ):
+            mock_gw.return_value = gw_session
             mock_target_session = MagicMock()
             mock_aioboto3.Session.return_value = mock_target_session
 
             result = await aws.assume_groundwork_admin(AWS_ACCOUNT_ID)
 
+        mock_gw.assert_called_once()
         assert result is mock_target_session
         mock_aioboto3.Session.assert_called_once_with(
             aws_access_key_id="AKIAIOSFODNN7EXAMPLE",

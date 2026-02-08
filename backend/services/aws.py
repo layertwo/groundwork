@@ -1,5 +1,6 @@
 """AWS service layer — all AWS API interactions live here."""
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -10,6 +11,7 @@ from urllib.parse import quote, urlparse
 
 import aioboto3
 import aiohttp
+from botocore.exceptions import ClientError
 
 from backend.config import settings
 
@@ -31,6 +33,31 @@ def get_session() -> aioboto3.Session:
     if _session is None:
         _session = aioboto3.Session(region_name=settings.aws_region)
     return _session
+
+
+async def get_groundwork_session() -> aioboto3.Session:
+    """Assume a role in the Groundwork account and return a session.
+
+    Used for StackSet management and as the base session for assuming
+    GroundworkAdmin roles in member accounts.
+    """
+    session = get_session()
+    role_arn = (
+        f"arn:aws:iam::{settings.aws_groundwork_account_id}"
+        f":role/{settings.aws_groundwork_role_name}"
+    )
+    async with session.client("sts") as sts:
+        assumed = await sts.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName="GroundworkStackSet",
+        )
+    creds = assumed["Credentials"]
+    return aioboto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=settings.aws_region,
+    )
 
 
 async def create_account(account_name: str, account_email: str) -> str:
@@ -96,70 +123,46 @@ async def move_account_to_ou(aws_account_id: str, ou: str) -> None:
         logger.info("Moved account %s to OU %s", aws_account_id, ou)
 
 
-async def bootstrap_account(aws_account_id: str) -> dict:
-    """Bootstrap a new account with OIDC provider and admin management role.
+async def bootstrap_account(aws_account_id: str, ou_id: str | None = None) -> dict:
+    """Bootstrap a new account via StackSet deployment.
 
-    1. Assume OrganizationAccountAccessRole in the target account
-    2. Create OIDC identity provider
-    3. Create admin management role with trust policy
-    4. Attach AdministratorAccess
+    Ensures the bootstrap StackSet exists, then polls until the stack
+    instance is deployed to the target account. If the instance is not
+    found and ou_id is provided, triggers a manual deployment.
 
     Returns dict with oidc_provider_arn and admin_role_arn.
     """
-    session = get_session()
+    await ensure_bootstrap_stackset()
 
-    # Step 1: Assume role in the new account
-    role_arn = f"arn:aws:iam::{aws_account_id}:role/OrganizationAccountAccessRole"
-    async with session.client("sts") as sts:
-        assumed = await sts.assume_role(RoleArn=role_arn, RoleSessionName="GroundworkBootstrap")
-    creds = assumed["Credentials"]
+    elapsed = 0
+    deploy_triggered = False
 
-    # Step 2–4: Use assumed credentials in the target account
-    target_session = aioboto3.Session(
-        aws_access_key_id=creds["AccessKeyId"],
-        aws_secret_access_key=creds["SecretAccessKey"],
-        aws_session_token=creds["SessionToken"],
-        region_name=settings.aws_region,
-    )
+    while elapsed < BOOTSTRAP_POLL_TIMEOUT_SECONDS:
+        status = await get_stack_instance_status(aws_account_id)
 
-    async with target_session.client("iam") as iam:
-        # Step 2: Create OIDC provider
-        thumbprint = await get_oidc_thumbprint(settings.oidc_issuer_url)
-        oidc_resp = await iam.create_open_id_connect_provider(
-            Url=settings.oidc_issuer_url,
-            ClientIDList=[settings.oidc_client_id],
-            ThumbprintList=[thumbprint],
-        )
-        oidc_provider_arn = oidc_resp["OpenIDConnectProviderArn"]
+        if status["deployed"]:
+            break
 
-        # Step 3: Create admin management role
-        mgmt_account_id = settings.aws_management_account_id
-        trust_policy = {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": {"AWS": f"arn:aws:iam::{mgmt_account_id}:root"},
-                    "Action": "sts:AssumeRole",
-                }
-            ],
-        }
-        role_resp = await iam.create_role(
-            RoleName=settings.admin_role_name,
-            AssumeRolePolicyDocument=json.dumps(trust_policy),
-            Description="Groundwork admin management role — DO NOT DELETE",
-            MaxSessionDuration=3600,
-        )
-        admin_role_arn = role_resp["Role"]["Arn"]
+        if status["detailed_status"] == "FAILED":
+            raise RuntimeError(f"Bootstrap stack deployment failed for account {aws_account_id}")
 
-        # Step 4: Attach AdministratorAccess
-        await iam.attach_role_policy(
-            RoleName=settings.admin_role_name,
-            PolicyArn="arn:aws:iam::aws:policy/AdministratorAccess",
-        )
+        # If instance doesn't exist yet, trigger manual deploy
+        if status["status"] == "NOT_FOUND" and ou_id and not deploy_triggered:
+            await deploy_to_account(aws_account_id, ou_id)
+            deploy_triggered = True
+
+        await asyncio.sleep(BOOTSTRAP_POLL_INTERVAL_SECONDS)
+        elapsed += BOOTSTRAP_POLL_INTERVAL_SECONDS
+    else:
+        raise RuntimeError(f"Bootstrap stack deployment timed out for account {aws_account_id}")
+
+    # Compute ARNs deterministically from known inputs
+    issuer_host = urlparse(settings.oidc_issuer_url).hostname
+    oidc_provider_arn = f"arn:aws:iam::{aws_account_id}:oidc-provider/{issuer_host}"
+    admin_role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
 
     logger.info(
-        "Bootstrapped account %s: oidc=%s role=%s",
+        "Bootstrap complete for account %s: oidc=%s role=%s",
         aws_account_id,
         oidc_provider_arn,
         admin_role_arn,
@@ -192,8 +195,6 @@ async def get_oidc_thumbprint(issuer_url: str) -> str:
 
 async def _fetch_server_cert(hostname: str, port: int, ctx: ssl.SSLContext) -> bytes:
     """Connect to host and return DER-encoded server certificate."""
-    import asyncio
-
     reader, writer = await asyncio.open_connection(hostname, port, ssl=ctx)
     ssl_object = writer.transport.get_extra_info("ssl_object")
     der_cert = ssl_object.getpeercert(binary_form=True)
@@ -210,11 +211,13 @@ async def _fetch_server_cert(hostname: str, port: int, ctx: ssl.SSLContext) -> b
 async def assume_groundwork_admin(aws_account_id: str) -> aioboto3.Session:
     """Assume the admin management role in a target account.
 
+    Chains through the Groundwork account (since the admin role trusts
+    the Groundwork account, not the management account).
     Returns an aioboto3 Session configured with the temporary credentials.
     """
-    session = get_session()
+    gw_session = await get_groundwork_session()
     role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
-    async with session.client("sts") as sts:
+    async with gw_session.client("sts") as sts:
         assumed = await sts.assume_role(
             RoleArn=role_arn,
             RoleSessionName="GroundworkRoleMgmt",
@@ -383,8 +386,6 @@ async def update_iam_role(
                     PolicyDocument=json.dumps(changes["inline_policy"]),
                 )
             else:
-                from botocore.exceptions import ClientError
-
                 try:
                     await iam.delete_role_policy(
                         RoleName=role_name,
@@ -499,3 +500,186 @@ async def get_console_url(
     )
 
     return login_url
+
+
+# ---------------------------------------------------------------------------
+# StackSet bootstrap (Phase 2)
+# ---------------------------------------------------------------------------
+
+BOOTSTRAP_STACKSET_NAME = "groundwork-bootstrap"
+BOOTSTRAP_POLL_INTERVAL_SECONDS = 30
+BOOTSTRAP_POLL_TIMEOUT_SECONDS = 15 * 60  # 15 minutes
+
+
+async def get_stack_instance_status(aws_account_id: str) -> dict:
+    """Check whether the bootstrap StackSet has deployed to an account.
+
+    Returns dict with:
+    - deployed: bool — True if stack instance is CURRENT + SUCCEEDED
+    - status: str — CURRENT, OUTDATED, INOPERABLE, or NOT_FOUND
+    - detailed_status: str — SUCCEEDED, PENDING, RUNNING, FAILED, etc.
+    """
+    gw_session = await get_groundwork_session()
+    async with gw_session.client("cloudformation") as cfn:
+        try:
+            resp = await cfn.describe_stack_instance(
+                StackSetName=BOOTSTRAP_STACKSET_NAME,
+                StackInstanceAccount=aws_account_id,
+                StackInstanceRegion=settings.aws_region,
+                CallAs="DELEGATED_ADMIN",
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "StackInstanceNotFoundException":
+                return {"deployed": False, "status": "NOT_FOUND", "detailed_status": "NOT_FOUND"}
+            raise
+
+        instance = resp["StackInstance"]
+        status = instance.get("Status", "UNKNOWN")
+        detailed = instance.get("StackInstanceStatus", {}).get("DetailedStatus", "UNKNOWN")
+        deployed = status == "CURRENT" and detailed == "SUCCEEDED"
+
+        return {"deployed": deployed, "status": status, "detailed_status": detailed}
+
+
+async def deploy_to_account(aws_account_id: str, ou_id: str) -> str:
+    """Manually deploy the bootstrap StackSet to a specific account.
+
+    Uses INTERSECTION filter to target a single account within its OU.
+    Returns the StackSet operation ID for tracking.
+    """
+    gw_session = await get_groundwork_session()
+    async with gw_session.client("cloudformation") as cfn:
+        resp = await cfn.create_stack_instances(
+            StackSetName=BOOTSTRAP_STACKSET_NAME,
+            DeploymentTargets={
+                "OrganizationalUnitIds": [ou_id],
+                "AccountFilterType": "INTERSECTION",
+                "Accounts": [aws_account_id],
+            },
+            Regions=[settings.aws_region],
+            CallAs="DELEGATED_ADMIN",
+        )
+    op_id = resp["OperationId"]
+    logger.info("Triggered manual deploy to account %s: operation=%s", aws_account_id, op_id)
+    return op_id
+
+
+async def ensure_bootstrap_stackset() -> None:
+    """Create the bootstrap StackSet if it doesn't exist.
+
+    Uses service-managed permissions with auto-deploy enabled, targeting
+    the entire organization. Idempotent — skips creation if the StackSet
+    already exists.
+    """
+    gw_session = await get_groundwork_session()
+
+    async with gw_session.client("cloudformation") as cfn:
+        # Check if StackSet already exists
+        try:
+            await cfn.describe_stack_set(
+                StackSetName=BOOTSTRAP_STACKSET_NAME,
+                CallAs="DELEGATED_ADMIN",
+            )
+            logger.info("Bootstrap StackSet already exists, skipping creation")
+            return
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "StackSetNotFoundException":
+                raise
+
+        # Compute thumbprint and generate template
+        thumbprint = await get_oidc_thumbprint(settings.oidc_issuer_url)
+        template_body = _build_bootstrap_template(
+            oidc_issuer_url=settings.oidc_issuer_url,
+            oidc_client_id=settings.oidc_client_id,
+            oidc_thumbprint=thumbprint,
+            groundwork_account_id=settings.aws_groundwork_account_id,
+            admin_role_name=settings.admin_role_name,
+        )
+
+        # Create the StackSet
+        await cfn.create_stack_set(
+            StackSetName=BOOTSTRAP_STACKSET_NAME,
+            Description="Groundwork bootstrap — OIDC provider and admin role",
+            TemplateBody=template_body,
+            PermissionModel="SERVICE_MANAGED",
+            AutoDeployment={"Enabled": True, "RetainStacksOnAccountRemoval": False},
+            CallAs="DELEGATED_ADMIN",
+        )
+
+        # Deploy to all existing accounts in the organization
+        await cfn.create_stack_instances(
+            StackSetName=BOOTSTRAP_STACKSET_NAME,
+            DeploymentTargets={"OrganizationalUnitIds": [settings.aws_org_root_id]},
+            Regions=[settings.aws_region],
+            CallAs="DELEGATED_ADMIN",
+        )
+        logger.info("Created bootstrap StackSet and deployed to org root")
+
+
+# ---------------------------------------------------------------------------
+# CloudFormation template builder (Phase 2 — StackSet bootstrap)
+# ---------------------------------------------------------------------------
+
+
+def _build_bootstrap_template(
+    oidc_issuer_url: str,
+    oidc_client_id: str,
+    oidc_thumbprint: str,
+    groundwork_account_id: str,
+    admin_role_name: str = "GroundworkAdmin-DO-NOT-DELETE",
+) -> str:
+    """Build a CloudFormation template for bootstrapping member accounts.
+
+    Generates a template that creates:
+    - An OIDC identity provider pointing at the configured issuer
+    - An admin management role trusted by the Groundwork service account
+
+    Returns a JSON string suitable for passing as ``TemplateBody``
+    to CloudFormation ``CreateStackSet``.
+    """
+    template: dict = {
+        "AWSTemplateFormatVersion": "2010-09-09",
+        "Description": "Groundwork bootstrap — OIDC provider and admin role for member accounts",
+        "Resources": {
+            "OidcProvider": {
+                "Type": "AWS::IAM::OIDCProvider",
+                "Properties": {
+                    "Url": oidc_issuer_url,
+                    "ClientIdList": [oidc_client_id],
+                    "ThumbprintList": [oidc_thumbprint],
+                },
+            },
+            "AdminRole": {
+                "Type": "AWS::IAM::Role",
+                "Properties": {
+                    "RoleName": admin_role_name,
+                    "Description": "Groundwork admin management role — DO NOT DELETE",
+                    "MaxSessionDuration": 3600,
+                    "AssumeRolePolicyDocument": {
+                        "Version": "2012-10-17",
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Principal": {"AWS": f"arn:aws:iam::{groundwork_account_id}:root"},
+                                "Action": "sts:AssumeRole",
+                            }
+                        ],
+                    },
+                    "ManagedPolicyArns": [
+                        "arn:aws:iam::aws:policy/AdministratorAccess",
+                    ],
+                },
+            },
+        },
+        "Outputs": {
+            "OidcProviderArn": {
+                "Description": "ARN of the OIDC identity provider",
+                "Value": {"Ref": "OidcProvider"},
+            },
+            "AdminRoleArn": {
+                "Description": "ARN of the Groundwork admin role",
+                "Value": {"Fn::GetAtt": ["AdminRole", "Arn"]},
+            },
+        },
+    }
+    return json.dumps(template)
