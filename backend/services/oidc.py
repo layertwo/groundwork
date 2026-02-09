@@ -11,6 +11,7 @@ from backend.config import settings
 logger = logging.getLogger(__name__)
 
 _CACHE_TTL = 3600  # 1 hour
+_CLOCK_SKEW_LEEWAY = 120  # seconds; tolerance for IdP/server clock drift
 
 _discovery_cache: dict[str, Any] | None = None
 _discovery_fetched_at: float = 0
@@ -103,7 +104,7 @@ async def validate_id_token(id_token: str, nonce: str) -> dict[str, Any]:
         },
     )
     try:
-        claims.validate()
+        claims.validate(leeway=_CLOCK_SKEW_LEEWAY)
     except Exception:
         # Key rotation: clear cache and retry once
         _clear_jwks_cache()
@@ -119,7 +120,7 @@ async def validate_id_token(id_token: str, nonce: str) -> dict[str, Any]:
                 "nonce": {"essential": True, "value": nonce},
             },
         )
-        claims.validate()
+        claims.validate(leeway=_CLOCK_SKEW_LEEWAY)
     return dict(claims)
 
 

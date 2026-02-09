@@ -222,6 +222,7 @@ class TestUpdateRole:
             role_name="DescRole",
             role_arn="arn:aws:iam::123456789012:role/DescRole",
             allowed_groups=["devs"],
+            status="active",
         )
         db_session.add(role)
         await db_session.flush()
@@ -248,6 +249,7 @@ class TestUpdateRole:
             role_name="GroupRole",
             role_arn="arn:aws:iam::123456789012:role/GroupRole",
             allowed_groups=["old-group"],
+            status="active",
         )
         db_session.add(role)
         await db_session.flush()
@@ -275,6 +277,7 @@ class TestUpdateRole:
             role_name="UserRole",
             role_arn="arn:aws:iam::123456789012:role/UserRole",
             allowed_groups=["devs"],
+            status="active",
         )
         db_session.add(role)
         await db_session.flush()
@@ -301,6 +304,7 @@ class TestUpdateRole:
             role_name="PolicyRole",
             role_arn="arn:aws:iam::123456789012:role/PolicyRole",
             allowed_groups=["devs"],
+            status="active",
         )
         db_session.add(role)
         await db_session.flush()
@@ -329,6 +333,7 @@ class TestDeleteRole:
             role_name="DeleteMe",
             role_arn="arn:aws:iam::123456789012:role/DeleteMe",
             allowed_groups=["devs"],
+            status="active",
         )
         db_session.add(role)
         await db_session.flush()
@@ -359,6 +364,7 @@ class TestListRoles:
             role_name="DevRole",
             role_arn="arn:aws:iam::123456789012:role/DevRole",
             allowed_groups=["devs"],
+            status="active",
         )
         # Role accessible to "ops" group only
         role2 = Role(
@@ -366,6 +372,7 @@ class TestListRoles:
             role_name="OpsRole",
             role_arn="arn:aws:iam::123456789012:role/OpsRole",
             allowed_groups=["ops"],
+            status="active",
         )
         db_session.add_all([role1, role2])
         await db_session.flush()
@@ -393,6 +400,7 @@ class TestListRoles:
             role_arn="arn:aws:iam::123456789012:role/UserSpecificRole",
             allowed_groups=[],
             allowed_users=["specific-user-sub"],
+            status="active",
         )
         db_session.add(role)
         await db_session.flush()
@@ -420,6 +428,7 @@ class TestListRoles:
             role_name="AdminVisible",
             role_arn="arn:aws:iam::123456789012:role/AdminVisible",
             allowed_groups=["secret-group"],
+            status="active",
         )
         db_session.add(role)
         await db_session.flush()
@@ -640,6 +649,7 @@ async def _create_role_for_assumption(db_session, account, **overrides):
         allowed_users=[],
         api_session_duration=900,
         console_session_duration=3600,
+        status="active",
     )
     defaults.update(overrides)
     role = Role(**defaults)
@@ -976,3 +986,365 @@ class TestConsoleAccess:
         assert log.user_id == user.id
         assert log.resource_type == "role"
         assert log.detail["role_name"] == role.role_name
+
+
+# ---------------------------------------------------------------------------
+# Role status gating tests
+# ---------------------------------------------------------------------------
+
+
+class TestRoleStatusGating:
+    """Tests for role status lifecycle and operation gating."""
+
+    # -- Assume/Console blocked for non-active roles --
+
+    async def test_assume_blocked_for_pending_role(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-pending"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, status="pending", role_arn="")
+
+        response = await client.post(
+            "/api/roles/assume",
+            json={"role_id": str(role.id)},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 400
+        assert "not available" in response.json()["detail"]
+
+    async def test_assume_blocked_for_failed_role(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-failed"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(
+            db_session, account, status="failed", error_message="IAM error"
+        )
+
+        response = await client.post(
+            "/api/roles/assume",
+            json={"role_id": str(role.id)},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 400
+
+    async def test_assume_blocked_for_updating_role(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-updating"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, status="updating")
+
+        response = await client.post(
+            "/api/roles/assume",
+            json={"role_id": str(role.id)},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 400
+
+    async def test_assume_blocked_for_deleting_role(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-deleting"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, status="deleting")
+
+        response = await client.post(
+            "/api/roles/assume",
+            json={"role_id": str(role.id)},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 400
+
+    async def test_console_blocked_for_pending_role(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-console-pending"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, status="pending", role_arn="")
+
+        response = await client.post(
+            "/api/roles/console",
+            json={"role_id": str(role.id)},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 400
+
+    # -- PATCH blocked for pending/deleting roles --
+
+    async def test_patch_blocked_for_pending_role(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="PendingRole",
+            role_arn="",
+            allowed_groups=["devs"],
+            status="pending",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        response = await client.patch(
+            f"/api/accounts/{account.id}/roles/{role.id}",
+            json={"description": "nope"},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 400
+        assert "cannot be modified" in response.json()["detail"]
+
+    async def test_patch_blocked_for_deleting_role(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="DeletingRole",
+            role_arn="arn:aws:iam::123456789012:role/DeletingRole",
+            allowed_groups=["devs"],
+            status="deleting",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        response = await client.patch(
+            f"/api/accounts/{account.id}/roles/{role.id}",
+            json={"description": "nope"},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 400
+
+    # -- PATCH with IAM fields on updating role returns 409 --
+
+    async def test_patch_iam_fields_on_updating_role_returns_409(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="UpdatingRole",
+            role_arn="arn:aws:iam::123456789012:role/UpdatingRole",
+            allowed_groups=["devs"],
+            status="updating",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        response = await client.patch(
+            f"/api/accounts/{account.id}/roles/{role.id}",
+            json={"allowed_groups": ["new-group"]},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 409
+        assert "already in progress" in response.json()["detail"]
+
+    # -- PATCH description-only on updating/failed roles succeeds --
+
+    async def test_patch_description_on_updating_role_succeeds(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="UpdatingDescRole",
+            role_arn="arn:aws:iam::123456789012:role/UpdatingDescRole",
+            allowed_groups=["devs"],
+            status="updating",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        response = await client.patch(
+            f"/api/accounts/{account.id}/roles/{role.id}",
+            json={"description": "Updated while updating"},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 200
+        assert response.json()["description"] == "Updated while updating"
+
+    async def test_patch_description_on_failed_role_succeeds(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="FailedDescRole",
+            role_arn="arn:aws:iam::123456789012:role/FailedDescRole",
+            allowed_groups=["devs"],
+            status="failed",
+            error_message="previous error",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        response = await client.patch(
+            f"/api/accounts/{account.id}/roles/{role.id}",
+            json={"description": "Updated while failed"},
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 200
+        assert response.json()["description"] == "Updated while failed"
+
+    # -- PATCH with IAM fields on failed role creates create_role job --
+
+    async def test_patch_iam_fields_on_failed_role_creates_create_job(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="FailedIamRole",
+            role_arn="arn:aws:iam::123456789012:role/FailedIamRole",
+            allowed_groups=["devs"],
+            status="failed",
+            error_message="previous error",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
+            response = await client.patch(
+                f"/api/accounts/{account.id}/roles/{role.id}",
+                json={"allowed_groups": ["new-group"]},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["error_message"] is None
+        assert data["role_arn"] == ""
+
+        # Should create a create_role job, not update_role
+        result = await db_session.execute(select(Job).where(Job.job_type == "create_role"))
+        job = result.scalar_one()
+        assert job.result["role_id"] == str(role.id)
+
+    # -- PATCH with IAM fields on active role creates update_role job --
+
+    async def test_patch_iam_fields_on_active_role_sets_updating(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="ActiveIamRole",
+            role_arn="arn:aws:iam::123456789012:role/ActiveIamRole",
+            allowed_groups=["devs"],
+            status="active",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
+            response = await client.patch(
+                f"/api/accounts/{account.id}/roles/{role.id}",
+                json={"allowed_groups": ["new-group"]},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "updating"
+
+        result = await db_session.execute(select(Job).where(Job.job_type == "update_role"))
+        job = result.scalar_one()
+        assert job.result["role_id"] == str(role.id)
+
+    # -- DELETE on updating role returns 409 --
+
+    async def test_delete_updating_role_returns_409(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="UpdatingDeleteRole",
+            role_arn="arn:aws:iam::123456789012:role/UpdatingDeleteRole",
+            allowed_groups=["devs"],
+            status="updating",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        response = await client.delete(
+            f"/api/accounts/{account.id}/roles/{role.id}",
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 409
+
+    # -- DELETE on deleting role is idempotent --
+
+    async def test_delete_deleting_role_is_idempotent(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="AlreadyDeleting",
+            role_arn="arn:aws:iam::123456789012:role/AlreadyDeleting",
+            allowed_groups=["devs"],
+            status="deleting",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        response = await client.delete(
+            f"/api/accounts/{account.id}/roles/{role.id}",
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 202
+
+    # -- DELETE sets deleting status --
+
+    async def test_delete_sets_deleting_status(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        role = Role(
+            account_id=account.id,
+            role_name="ToDelete",
+            role_arn="arn:aws:iam::123456789012:role/ToDelete",
+            allowed_groups=["devs"],
+            status="active",
+        )
+        db_session.add(role)
+        await db_session.flush()
+        role_id = role.id
+
+        with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
+            response = await client.delete(
+                f"/api/accounts/{account.id}/roles/{role.id}",
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 202
+
+        # Verify status was set to deleting
+        result = await db_session.execute(select(Role).where(Role.id == role_id))
+        updated_role = result.scalar_one()
+        assert updated_role.status == "deleting"
+
+    # -- New role creation returns status="pending" --
+
+    async def test_create_role_returns_pending_status(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
+            response = await client.post(
+                f"/api/accounts/{account.id}/roles",
+                json={"role_name": "NewRole", "allowed_groups": ["devs"]},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["error_message"] is None

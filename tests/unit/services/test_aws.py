@@ -354,6 +354,14 @@ class TestBuildBootstrapTemplate:
 class TestEnsureBootstrapStackset:
     async def test_creates_stackset_when_not_exists(self):
         """When the StackSet doesn't exist, create it and deploy to org root."""
+        template_body = aws._build_bootstrap_template(
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="gw-client",
+            oidc_thumbprint="a" * 40,
+            groundwork_account_id="222233334444",
+            admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
+        )
+
         _, cfn_stubber = await create_stubbed_client("cloudformation")
 
         # describe_stack_set raises StackSetNotFoundException
@@ -361,9 +369,34 @@ class TestEnsureBootstrapStackset:
             "describe_stack_set",
             service_error_code="StackSetNotFoundException",
             service_message="StackSet not found",
+            expected_params={
+                "StackSetName": "groundwork-bootstrap",
+                "CallAs": "DELEGATED_ADMIN",
+            },
         )
-        cfn_stubber.add_response("create_stack_set", {"StackSetId": "ss-123"})
-        cfn_stubber.add_response("create_stack_instances", {"OperationId": "op-abc"})
+        cfn_stubber.add_response(
+            "create_stack_set",
+            {"StackSetId": "ss-123"},
+            expected_params={
+                "StackSetName": "groundwork-bootstrap",
+                "Description": "Groundwork bootstrap - OIDC provider and admin role",
+                "TemplateBody": template_body,
+                "PermissionModel": "SERVICE_MANAGED",
+                "AutoDeployment": {"Enabled": True, "RetainStacksOnAccountRemoval": False},
+                "Capabilities": ["CAPABILITY_NAMED_IAM"],
+                "CallAs": "DELEGATED_ADMIN",
+            },
+        )
+        cfn_stubber.add_response(
+            "create_stack_instances",
+            {"OperationId": "op-abc"},
+            expected_params={
+                "StackSetName": "groundwork-bootstrap",
+                "DeploymentTargets": {"OrganizationalUnitIds": ["r-abc1"]},
+                "Regions": ["us-east-1"],
+                "CallAs": "DELEGATED_ADMIN",
+            },
+        )
         cfn_stubber.activate()
 
         mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
@@ -384,8 +417,16 @@ class TestEnsureBootstrapStackset:
 
         cfn_stubber.assert_no_pending_responses()
 
-    async def test_noop_when_stackset_exists(self):
-        """When the StackSet already exists, do nothing."""
+    async def test_updates_stackset_when_exists(self):
+        """When the StackSet already exists, update it with the latest template."""
+        template_body = aws._build_bootstrap_template(
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="gw-client",
+            oidc_thumbprint="a" * 40,
+            groundwork_account_id="222233334444",
+            admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
+        )
+
         _, cfn_stubber = await create_stubbed_client("cloudformation")
         cfn_stubber.add_response(
             "describe_stack_set",
@@ -396,12 +437,77 @@ class TestEnsureBootstrapStackset:
                     "Status": "ACTIVE",
                 }
             },
+            expected_params={
+                "StackSetName": "groundwork-bootstrap",
+                "CallAs": "DELEGATED_ADMIN",
+            },
+        )
+        cfn_stubber.add_response(
+            "update_stack_set",
+            {"OperationId": "op-update-1"},
+            expected_params={
+                "StackSetName": "groundwork-bootstrap",
+                "Description": "Groundwork bootstrap - OIDC provider and admin role",
+                "TemplateBody": template_body,
+                "Capabilities": ["CAPABILITY_NAMED_IAM"],
+                "CallAs": "DELEGATED_ADMIN",
+            },
         )
         cfn_stubber.activate()
 
         mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
 
-        with patch.object(aws, "get_session", return_value=mock_gw_session):
+        with (
+            patch.object(aws, "get_session", return_value=mock_gw_session),
+            patch.object(aws, "get_oidc_thumbprint", new_callable=AsyncMock) as mock_thumb,
+            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
+            patch.object(settings, "oidc_client_id", "gw-client"),
+            patch.object(settings, "aws_groundwork_account_id", "222233334444"),
+            patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
+        ):
+            mock_thumb.return_value = "a" * 40
+
+            await aws.ensure_bootstrap_stackset()
+
+        cfn_stubber.assert_no_pending_responses()
+
+    async def test_update_skipped_when_operation_in_progress(self):
+        """When another StackSet operation is running, skip the update gracefully."""
+        _, cfn_stubber = await create_stubbed_client("cloudformation")
+        cfn_stubber.add_response(
+            "describe_stack_set",
+            {
+                "StackSet": {
+                    "StackSetName": "groundwork-bootstrap",
+                    "StackSetId": "ss-123",
+                    "Status": "ACTIVE",
+                }
+            },
+            expected_params={
+                "StackSetName": "groundwork-bootstrap",
+                "CallAs": "DELEGATED_ADMIN",
+            },
+        )
+        cfn_stubber.add_client_error(
+            "update_stack_set",
+            service_error_code="OperationInProgressException",
+            service_message="Another Operation on StackSet is in progress",
+        )
+        cfn_stubber.activate()
+
+        mock_gw_session = _stubbed_session({"cloudformation": cfn_stubber})
+
+        with (
+            patch.object(aws, "get_session", return_value=mock_gw_session),
+            patch.object(aws, "get_oidc_thumbprint", new_callable=AsyncMock) as mock_thumb,
+            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
+            patch.object(settings, "oidc_client_id", "gw-client"),
+            patch.object(settings, "aws_groundwork_account_id", "222233334444"),
+            patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
+        ):
+            mock_thumb.return_value = "a" * 40
+
+            # Should not raise
             await aws.ensure_bootstrap_stackset()
 
         cfn_stubber.assert_no_pending_responses()

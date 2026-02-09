@@ -284,9 +284,18 @@ def _build_trust_policy(
 ) -> str:
     """Build an IAM trust policy for OIDC federation.
 
-    Creates up to two statements: one for group-based access and one for
-    user-based access. Each is gated on the ``aud`` claim matching the
-    configured OIDC client ID.
+    AWS STS ``AssumeRoleWithWebIdentity`` only exposes ``aud`` and ``sub``
+    as condition keys for custom OIDC providers — arbitrary claims like
+    ``groups`` are **not** evaluated.  Group-based access control is
+    therefore enforced at the application layer (see
+    ``_load_role_for_assumption``) before the STS call.
+
+    The trust policy produced here:
+    - **Group access** — gates only on ``aud`` (any token issued by the
+      correct IdP for this client can assume the role; Groundwork checks
+      group membership before calling STS).
+    - **User access** — gates on both ``aud`` and ``sub`` (AWS can enforce
+      the user identity directly).
     """
     # Extract issuer host from the OIDC provider ARN
     # ARN format: arn:aws:iam::<account>:oidc-provider/<issuer_host>
@@ -295,6 +304,9 @@ def _build_trust_policy(
     statements: list[dict] = []
 
     if allowed_groups:
+        # AWS STS does not support {issuer}:groups as a condition key for
+        # custom OIDC providers, so we only check the audience claim here.
+        # Group membership is enforced by Groundwork before the STS call.
         statements.append(
             {
                 "Sid": "AllowGroupAccess",
@@ -304,9 +316,6 @@ def _build_trust_policy(
                 "Condition": {
                     "StringEquals": {
                         f"{issuer}:aud": settings.oidc_client_id,
-                    },
-                    "ForAnyValue:StringEquals": {
-                        f"{issuer}:groups": allowed_groups,
                     },
                 },
             }
@@ -448,23 +457,34 @@ async def delete_iam_role(aws_account_id: str, role_name: str) -> None:
     """Delete an IAM role from the target account.
 
     Detaches all managed policies and deletes inline policies first.
+    Succeeds silently if the role does not exist (idempotent).
     """
     target_session = await assume_groundwork_admin(aws_account_id)
 
     async with target_session.client("iam") as iam:
-        # Detach managed policies
-        paginator = iam.get_paginator("list_attached_role_policies")
-        async for page in paginator.paginate(RoleName=role_name):
-            for policy in page.get("AttachedPolicies", []):
-                await iam.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
+        try:
+            # Detach managed policies
+            paginator = iam.get_paginator("list_attached_role_policies")
+            async for page in paginator.paginate(RoleName=role_name):
+                for policy in page.get("AttachedPolicies", []):
+                    await iam.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
 
-        # Delete inline policies
-        paginator = iam.get_paginator("list_role_policies")
-        async for page in paginator.paginate(RoleName=role_name):
-            for policy_name in page.get("PolicyNames", []):
-                await iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+            # Delete inline policies
+            paginator = iam.get_paginator("list_role_policies")
+            async for page in paginator.paginate(RoleName=role_name):
+                for policy_name in page.get("PolicyNames", []):
+                    await iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
 
-        await iam.delete_role(RoleName=role_name)
+            await iam.delete_role(RoleName=role_name)
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "NoSuchEntity":
+                logger.info(
+                    "IAM role %s not found in account %s, treating as already deleted",
+                    role_name,
+                    aws_account_id,
+                )
+                return
+            raise
 
     logger.info("Deleted IAM role %s from account %s", role_name, aws_account_id)
 
@@ -484,15 +504,40 @@ async def assume_role_with_web_identity(
 
     Returns STSCredentials with access_key_id, secret_access_key,
     session_token, and expiration.
+
+    Raises :class:`~backend.exceptions.ForbiddenError` when STS denies the
+    assumption (trust policy mismatch, expired token, etc.).
     """
+    from backend.exceptions import ForbiddenError
+
     session = get_session()
-    async with session.client("sts") as sts:
-        resp = await sts.assume_role_with_web_identity(
-            RoleArn=role_arn,
-            RoleSessionName=session_name,
-            WebIdentityToken=id_token,
-            DurationSeconds=session_duration,
-        )
+    try:
+        async with session.client("sts") as sts:
+            resp = await sts.assume_role_with_web_identity(
+                RoleArn=role_arn,
+                RoleSessionName=session_name,
+                WebIdentityToken=id_token,
+                DurationSeconds=session_duration,
+            )
+    except ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("AccessDenied", "AccessDeniedException"):
+            logger.warning(
+                "STS AssumeRoleWithWebIdentity denied for role %s session %s: %s",
+                role_arn,
+                session_name,
+                exc.response["Error"].get("Message", ""),
+            )
+            raise ForbiddenError(
+                "Role assumption denied — check that the role's trust policy "
+                "allows your identity provider, audience, and user/group claims"
+            ) from exc
+        if code == "ExpiredTokenException":
+            logger.warning("STS denied: id_token expired for role %s", role_arn)
+            raise ForbiddenError(
+                "Role assumption denied — your session token has expired, please re-login"
+            ) from exc
+        raise
     creds = resp["Credentials"]
     return STSCredentials(
         access_key_id=creds["AccessKeyId"],
@@ -611,13 +656,24 @@ async def deploy_to_account(aws_account_id: str, ou_id: str) -> str:
 
 
 async def ensure_bootstrap_stackset() -> None:
-    """Create the bootstrap StackSet if it doesn't exist.
+    """Create or update the bootstrap StackSet.
 
     Uses service-managed permissions with auto-deploy enabled, targeting
-    the entire organization. Idempotent — skips creation if the StackSet
-    already exists.
+    the entire organization. On every call the StackSet template is
+    re-applied so that configuration changes (OIDC settings, role name,
+    etc.) are picked up on restart.
     """
     session = get_session()
+
+    # Compute thumbprint and generate template (needed for both create and update)
+    thumbprint = await get_oidc_thumbprint(settings.oidc_issuer_url)
+    template_body = _build_bootstrap_template(
+        oidc_issuer_url=settings.oidc_issuer_url,
+        oidc_client_id=settings.oidc_client_id,
+        oidc_thumbprint=thumbprint,
+        groundwork_account_id=settings.aws_groundwork_account_id,
+        admin_role_name=settings.admin_role_name,
+    )
 
     async with session.client("cloudformation") as cfn:
         # Check if StackSet already exists
@@ -626,40 +682,46 @@ async def ensure_bootstrap_stackset() -> None:
                 StackSetName=BOOTSTRAP_STACKSET_NAME,
                 CallAs="DELEGATED_ADMIN",
             )
-            logger.info("Bootstrap StackSet already exists, skipping creation")
-            return
+            exists = True
         except ClientError as e:
             if e.response["Error"]["Code"] != "StackSetNotFoundException":
                 raise
+            exists = False
 
-        # Compute thumbprint and generate template
-        thumbprint = await get_oidc_thumbprint(settings.oidc_issuer_url)
-        template_body = _build_bootstrap_template(
-            oidc_issuer_url=settings.oidc_issuer_url,
-            oidc_client_id=settings.oidc_client_id,
-            oidc_thumbprint=thumbprint,
-            groundwork_account_id=settings.aws_groundwork_account_id,
-            admin_role_name=settings.admin_role_name,
-        )
+        if exists:
+            try:
+                await cfn.update_stack_set(
+                    StackSetName=BOOTSTRAP_STACKSET_NAME,
+                    Description="Groundwork bootstrap - OIDC provider and admin role",
+                    TemplateBody=template_body,
+                    Capabilities=["CAPABILITY_NAMED_IAM"],
+                    CallAs="DELEGATED_ADMIN",
+                )
+                logger.info("Updated bootstrap StackSet with latest template")
+            except ClientError as e:
+                if e.response["Error"]["Code"] == "OperationInProgressException":
+                    logger.info("StackSet update skipped — another operation is in progress")
+                else:
+                    raise
+        else:
+            await cfn.create_stack_set(
+                StackSetName=BOOTSTRAP_STACKSET_NAME,
+                Description="Groundwork bootstrap - OIDC provider and admin role",
+                TemplateBody=template_body,
+                PermissionModel="SERVICE_MANAGED",
+                AutoDeployment={"Enabled": True, "RetainStacksOnAccountRemoval": False},
+                Capabilities=["CAPABILITY_NAMED_IAM"],
+                CallAs="DELEGATED_ADMIN",
+            )
 
-        # Create the StackSet
-        await cfn.create_stack_set(
-            StackSetName=BOOTSTRAP_STACKSET_NAME,
-            Description="Groundwork bootstrap — OIDC provider and admin role",
-            TemplateBody=template_body,
-            PermissionModel="SERVICE_MANAGED",
-            AutoDeployment={"Enabled": True, "RetainStacksOnAccountRemoval": False},
-            CallAs="DELEGATED_ADMIN",
-        )
-
-        # Deploy to all existing accounts in the organization
-        await cfn.create_stack_instances(
-            StackSetName=BOOTSTRAP_STACKSET_NAME,
-            DeploymentTargets={"OrganizationalUnitIds": [settings.aws_org_root_id]},
-            Regions=[settings.aws_region],
-            CallAs="DELEGATED_ADMIN",
-        )
-        logger.info("Created bootstrap StackSet and deployed to org root")
+            # Deploy to all existing accounts in the organization
+            await cfn.create_stack_instances(
+                StackSetName=BOOTSTRAP_STACKSET_NAME,
+                DeploymentTargets={"OrganizationalUnitIds": [settings.aws_org_root_id]},
+                Regions=[settings.aws_region],
+                CallAs="DELEGATED_ADMIN",
+            )
+            logger.info("Created bootstrap StackSet and deployed to org root")
 
 
 # ---------------------------------------------------------------------------
@@ -685,7 +747,7 @@ def _build_bootstrap_template(
     """
     template: dict = {
         "AWSTemplateFormatVersion": "2010-09-09",
-        "Description": "Groundwork bootstrap — OIDC provider and admin role for member accounts",
+        "Description": "Groundwork bootstrap - OIDC provider and admin role for member accounts",
         "Resources": {
             "OidcProvider": {
                 "Type": "AWS::IAM::OIDCProvider",
@@ -699,7 +761,7 @@ def _build_bootstrap_template(
                 "Type": "AWS::IAM::Role",
                 "Properties": {
                     "RoleName": admin_role_name,
-                    "Description": "Groundwork admin management role — DO NOT DELETE",
+                    "Description": "Groundwork admin management role - DO NOT DELETE",
                     "MaxSessionDuration": 3600,
                     "AssumeRolePolicyDocument": {
                         "Version": "2012-10-17",

@@ -3,9 +3,9 @@
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import async_session_factory
@@ -14,18 +14,81 @@ from backend.models.job import Job
 from backend.models.role import Role
 from backend.services import aws
 from backend.services.audit import log_event
+from backend.services.system_user import get_or_create_system_user
 
 logger = logging.getLogger(__name__)
 
+
+async def recover_stale_jobs(background_tasks: set) -> int:
+    """Re-enqueue pending/in_progress jobs that were orphaned by a server restart.
+
+    - Resets ``in_progress`` jobs back to ``pending`` (clears ``started_at``).
+    - Spawns an ``asyncio.Task`` for each recovered job via ``execute_job()``.
+    - Returns the number of recovered jobs for logging.
+    """
+    async with async_session_factory() as db:
+        now = datetime.now(timezone.utc)
+        result = await db.execute(
+            select(Job).where(
+                Job.status.in_(["pending", "in_progress"]),
+                or_(Job.scheduled_after.is_(None), Job.scheduled_after <= now),
+            )
+        )
+        stale_jobs = result.scalars().all()
+
+        for job in stale_jobs:
+            if job.status == "in_progress":
+                job.status = "pending"
+                job.started_at = None
+                db.add(job)
+
+        await db.commit()
+
+    # Spawn tasks outside the DB session so rows are visible to new sessions
+    for job in stale_jobs:
+        task = asyncio.create_task(execute_job(job.id))
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
+
+    return len(stale_jobs)
+
+
 POLL_INTERVAL_SECONDS = 30
 POLL_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
+
+
+MAX_SCHEDULED_DELAY_SECONDS = 30 * 60  # 30 minutes
 
 
 async def execute_job(job_id: uuid.UUID) -> None:
     """Load a job and dispatch to the appropriate handler.
 
     Runs in its own DB session (not the request session).
+    If the job has a ``scheduled_after`` value in the future, sleeps outside
+    any DB session to avoid holding a connection pool slot.
     """
+    # Check for scheduled delay in a short-lived session
+    async with async_session_factory() as db:
+        result = await db.execute(select(Job.scheduled_after).where(Job.id == job_id))
+        row = result.one_or_none()
+        if row is None:
+            logger.error("Job %s not found", job_id)
+            return
+        scheduled_after = row[0]
+
+    if scheduled_after is not None:
+        delay = (scheduled_after - datetime.now(timezone.utc)).total_seconds()
+        delay = min(delay, MAX_SCHEDULED_DELAY_SECONDS)
+        if delay > 0:
+            logger.info(
+                "Job %s scheduled for %s, sleeping %.0fs",
+                job_id,
+                scheduled_after,
+                delay,
+            )
+            await asyncio.sleep(delay)
+
+    # Execute the job in a fresh session
     async with async_session_factory() as db:
         try:
             result = await db.execute(select(Job).where(Job.id == job_id))
@@ -424,6 +487,8 @@ async def run_create_role(job: Job, db: AsyncSession) -> None:
             max_duration=max(role.api_session_duration, role.console_session_duration),
         )
         role.role_arn = role_arn
+        role.status = "active"
+        role.error_message = None
         db.add(role)
 
         job.status = "completed"
@@ -444,6 +509,10 @@ async def run_create_role(job: Job, db: AsyncSession) -> None:
     except Exception as exc:
         logger.exception("Role creation failed for role %s", role_id)
         safe_msg = _sanitize_error(exc)
+
+        role.status = "failed"
+        role.error_message = safe_msg
+        db.add(role)
 
         job.status = "failed"
         job.error_message = safe_msg
@@ -493,6 +562,10 @@ async def run_update_role(job: Job, db: AsyncSession) -> None:
             changes=changes,
         )
 
+        role.status = "active"
+        role.error_message = None
+        db.add(role)
+
         job.status = "completed"
         job.completed_at = datetime.now(timezone.utc)
         db.add(job)
@@ -510,6 +583,10 @@ async def run_update_role(job: Job, db: AsyncSession) -> None:
     except Exception as exc:
         logger.exception("Role update failed for role %s", role_id)
         safe_msg = _sanitize_error(exc)
+
+        role.status = "failed"
+        role.error_message = safe_msg
+        db.add(role)
 
         job.status = "failed"
         job.error_message = safe_msg
@@ -566,6 +643,14 @@ async def run_delete_role(job: Job, db: AsyncSession) -> None:
         logger.exception("Role deletion failed for role %s", role_id)
         safe_msg = _sanitize_error(exc)
 
+        # Reload role to set failure status (role may not be in scope)
+        result = await db.execute(select(Role).where(Role.id == role_id))
+        failed_role = result.scalar_one_or_none()
+        if failed_role is not None:
+            failed_role.status = "failed"
+            failed_role.error_message = safe_msg
+            db.add(failed_role)
+
         job.status = "failed"
         job.error_message = safe_msg
         job.completed_at = datetime.now(timezone.utc)
@@ -580,6 +665,79 @@ async def run_delete_role(job: Job, db: AsyncSession) -> None:
             detail={"error": safe_msg},
         )
         await db.commit()
+
+
+BOOTSTRAP_REPAIR_DELAY = timedelta(minutes=5)
+
+
+async def verify_account_bootstraps(background_tasks: set) -> int:
+    """Check each active account's bootstrap and schedule repairs for failures.
+
+    For every active account with an ``aws_account_id``, attempts
+    ``assume_groundwork_admin()``.  If the call fails, creates a delayed
+    ``bootstrap_account`` job (scheduled 5 minutes in the future) so the
+    StackSet deployment has time to propagate.
+
+    Returns the number of repair jobs created.
+    """
+    async with async_session_factory() as db:
+        system_user = await get_or_create_system_user(db)
+
+        # Active accounts with an AWS account ID
+        result = await db.execute(
+            select(Account).where(
+                Account.aws_account_id.isnot(None),
+                Account.status == "active",
+            )
+        )
+        accounts = result.scalars().all()
+
+        if not accounts:
+            return 0
+
+        # Accounts that already have a pending bootstrap_account job
+        result = await db.execute(
+            select(Job.account_id).where(
+                Job.job_type == "bootstrap_account",
+                Job.status == "pending",
+            )
+        )
+        already_pending = {row[0] for row in result.all()}
+
+        repair_jobs: list[Job] = []
+        now = datetime.now(timezone.utc)
+
+        for account in accounts:
+            if account.id in already_pending:
+                continue
+
+            try:
+                await aws.assume_groundwork_admin(account.aws_account_id)
+            except Exception:
+                logger.warning(
+                    "Bootstrap check failed for account %s (%s), scheduling repair",
+                    account.id,
+                    account.aws_account_id,
+                )
+                job = Job(
+                    account_id=account.id,
+                    job_type="bootstrap_account",
+                    status="pending",
+                    started_by=system_user.id,
+                    scheduled_after=now + BOOTSTRAP_REPAIR_DELAY,
+                )
+                db.add(job)
+                repair_jobs.append(job)
+
+        await db.commit()
+
+    # Spawn tasks after commit so rows are visible to new sessions
+    for job in repair_jobs:
+        task = asyncio.create_task(execute_job(job.id))
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
+
+    return len(repair_jobs)
 
 
 def _sanitize_error(exc: Exception) -> str:

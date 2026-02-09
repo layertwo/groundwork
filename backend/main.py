@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -19,7 +19,8 @@ from backend.models.job import Job
 from backend.models.user import User
 from backend.routers import accounts, audit, auth, jobs, roles
 from backend.schemas.common import HealthResponse
-from backend.services.jobs import execute_job
+from backend.services.aws import ensure_bootstrap_stackset
+from backend.services.jobs import execute_job, recover_stale_jobs, verify_account_bootstraps
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -111,6 +112,17 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("SELECT 1"))
     logger.info("Database connection verified")
 
+    # Ensure bootstrap StackSet is created/updated with latest template
+    if settings.aws_groundwork_account_id:
+        await ensure_bootstrap_stackset()
+        repairs = await verify_account_bootstraps(app.state.background_tasks)
+        if repairs:
+            logger.info("Scheduled %d bootstrap repair(s)", repairs)
+    # Recover orphaned jobs from a previous server lifecycle
+    recovered = await recover_stale_jobs(app.state.background_tasks)
+    if recovered:
+        logger.info("Recovered %d stale job(s)", recovered)
+
     # Start sync scheduler if configured
     scheduler_task = None
     if settings.sync_interval_minutes > 0:
@@ -201,4 +213,17 @@ async def health_check():
 # Serve frontend static files if built
 frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
 if frontend_dist.is_dir():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    # Serve Vite hashed assets at /assets
+    assets_dir = frontend_dist / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
+
+    # SPA catch-all: return index.html for any non-API GET request.
+    # All /api/* routers are registered above, so they take priority.
+    index_html = frontend_dist / "index.html"
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        if full_path.startswith("api/"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        return FileResponse(str(index_html))

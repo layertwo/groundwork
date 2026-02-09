@@ -20,5 +20,6 @@ class JobResponse(BaseModel):
     result: Optional[dict[str, Any]]
     error_message: Optional[str]
     created_at: datetime
+    scheduled_after: Optional[datetime]
 
     model_config = {"from_attributes": True}
