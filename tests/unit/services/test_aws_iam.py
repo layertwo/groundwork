@@ -16,6 +16,7 @@ ROLE_NAME = "TestRole"
 
 class TestBuildTrustPolicy:
     def test_groups_only(self):
+        """Group access gates on aud only — AWS STS does not support :groups."""
         with patch.object(settings, "oidc_client_id", OIDC_CLIENT_ID):
             policy_str = aws._build_trust_policy(
                 oidc_provider_arn=OIDC_PROVIDER_ARN,
@@ -31,10 +32,9 @@ class TestBuildTrustPolicy:
         assert stmt["Principal"]["Federated"] == OIDC_PROVIDER_ARN
         assert stmt["Action"] == "sts:AssumeRoleWithWebIdentity"
         assert stmt["Condition"]["StringEquals"]["idp.example.com:aud"] == OIDC_CLIENT_ID
-        assert stmt["Condition"]["ForAnyValue:StringEquals"]["idp.example.com:groups"] == [
-            "devs",
-            "admins",
-        ]
+        # No :groups condition — AWS STS ignores it for custom OIDC providers.
+        # Group membership is enforced by Groundwork at the application layer.
+        assert "ForAnyValue:StringEquals" not in stmt["Condition"]
 
     def test_users_only(self):
         with patch.object(settings, "oidc_client_id", OIDC_CLIENT_ID):

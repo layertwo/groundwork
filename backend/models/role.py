@@ -42,5 +42,9 @@ class Role(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Integer, nullable=False, default=3600, server_default="3600"
     )
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="pending", server_default="pending"
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     account: Mapped["Account"] = relationship("Account", back_populates="roles")

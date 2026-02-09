@@ -33,6 +33,9 @@ class Job(UUIDPrimaryKeyMixin, Base):
     result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    scheduled_after: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
     account: Mapped[Optional["Account"]] = relationship("Account", back_populates="jobs")
     initiator: Mapped["User"] = relationship("User")

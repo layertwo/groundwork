@@ -36,7 +36,11 @@ class TestAuditLogModel:
         db_session.add(e2)
         await db_session.commit()
 
-        result = await db_session.execute(select(AuditLog).order_by(AuditLog.id))
+        result = await db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.action.in_(["first.action", "second.action"]))
+            .order_by(AuditLog.id)
+        )
         entries = result.scalars().all()
 
         assert len(entries) == 2

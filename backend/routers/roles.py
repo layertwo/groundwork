@@ -165,6 +165,9 @@ async def update_role(
     if role is None:
         raise NotFoundError("Role not found")
 
+    if role.status in ("pending", "deleting"):
+        raise GroundworkError("Role cannot be modified in its current state", status_code=400)
+
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         return role
@@ -179,6 +182,9 @@ async def update_role(
         "console_session_duration",
     }
     iam_changes = {k: v for k, v in update_data.items() if k in iam_fields}
+
+    if role.status == "updating" and iam_changes:
+        raise ConflictError("Role IAM update already in progress")
 
     # Apply all DB field updates
     for field, value in update_data.items():
@@ -195,13 +201,29 @@ async def update_role(
             iam_changes.setdefault("api_session_duration", role.api_session_duration)
             iam_changes.setdefault("console_session_duration", role.console_session_duration)
 
-        job = Job(
-            account_id=account_id,
-            job_type="update_role",
-            status="pending",
-            started_by=admin.id,
-            result={"role_id": str(role.id), "changes": iam_changes},
-        )
+        if role.status == "failed":
+            # Re-create from scratch
+            role.status = "pending"
+            role.error_message = None
+            role.role_arn = ""
+            job = Job(
+                account_id=account_id,
+                job_type="create_role",
+                status="pending",
+                started_by=admin.id,
+                result={"role_id": str(role.id)},
+            )
+        else:
+            # Active → updating
+            role.status = "updating"
+            job = Job(
+                account_id=account_id,
+                job_type="update_role",
+                status="pending",
+                started_by=admin.id,
+                result={"role_id": str(role.id), "changes": iam_changes},
+            )
+
         db.add(job)
         await db.flush()
 
@@ -237,6 +259,14 @@ async def delete_role(
     role = result.scalar_one_or_none()
     if role is None:
         raise NotFoundError("Role not found")
+
+    if role.status == "updating":
+        raise ConflictError("Cannot delete role while an IAM update is in progress")
+    if role.status == "deleting":
+        return Response(status_code=202)
+
+    role.status = "deleting"
+    db.add(role)
 
     # Load account for aws_account_id
     acct_result = await db.execute(select(Account).where(Account.id == account_id))
@@ -312,6 +342,9 @@ async def _load_role_for_assumption(
     role = result.scalar_one_or_none()
     if role is None:
         raise NotFoundError("Role not found")
+
+    if role.status != "active":
+        raise GroundworkError("Role is not available for assumption", status_code=400)
 
     # Access check: user's groups intersect allowed_groups OR sub in allowed_users
     user_groups = set(user.groups or [])

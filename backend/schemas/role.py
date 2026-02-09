@@ -118,6 +118,8 @@ class RoleResponse(BaseModel):
     account_id: UUID
     role_name: str
     role_arn: str
+    status: str
+    error_message: Optional[str]
     allowed_groups: list[str]
     managed_policy_arns: list[str]
     inline_policy: Optional[dict[str, Any]]
