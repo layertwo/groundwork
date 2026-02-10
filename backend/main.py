@@ -17,7 +17,7 @@ from backend.database import async_session_factory, engine
 from backend.exceptions import register_exception_handlers
 from backend.models.job import Job
 from backend.models.user import User
-from backend.routers import accounts, audit, auth, jobs, roles
+from backend.routers import accounts, audit, auth, events, jobs, roles
 from backend.schemas.common import HealthResponse
 from backend.services.aws import ensure_bootstrap_stackset
 from backend.services.jobs import execute_job, recover_stale_jobs, verify_account_bootstraps
@@ -197,6 +197,7 @@ app.include_router(auth.router)
 app.include_router(roles.router)
 app.include_router(jobs.router)
 app.include_router(audit.router)
+app.include_router(events.router)
 
 
 @app.get("/api/health", response_model=HealthResponse)

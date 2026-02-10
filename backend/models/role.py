@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import ARRAY, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -46,5 +47,8 @@ class Role(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         String(32), nullable=False, default="pending", server_default="pending"
     )
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
     account: Mapped["Account"] = relationship("Account", back_populates="roles")

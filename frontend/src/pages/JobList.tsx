@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -51,13 +52,6 @@ export default function JobList() {
   const { data: jobs, isLoading } = useQuery({
     queryKey: ['jobs', filters],
     queryFn: () => listJobs(Object.keys(filters).length > 0 ? filters : undefined),
-    refetchInterval: (query) => {
-      const data = query.state.data
-      if (data?.some((j) => j.status === 'pending' || j.status === 'in_progress')) {
-        return 5000
-      }
-      return false
-    },
   })
 
   const { data: accounts } = useQuery({
@@ -128,6 +122,7 @@ export default function JobList() {
       ) : filteredJobs.length === 0 ? (
         <div className="text-muted-foreground">No jobs match your search.</div>
       ) : (
+        <Card>
         <Table>
           <TableHeader>
             <TableRow>
@@ -154,6 +149,7 @@ export default function JobList() {
             ))}
           </TableBody>
         </Table>
+        </Card>
       )}
     </div>
   )

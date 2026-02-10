@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { Link, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -8,6 +10,7 @@ import { ApiError } from '@/api/client'
 
 export default function AccountCreate() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -27,6 +30,8 @@ export default function AccountCreate() {
     setSubmitting(true)
     try {
       const account = await createAccount(form)
+      await queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      toast.success('Account created')
       navigate(`/accounts/${account.id}`)
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to create account')

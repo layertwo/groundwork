@@ -1,5 +1,6 @@
 import asyncio
 import re
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -40,12 +41,12 @@ _SESSION_NAME_RE = re.compile(r"[^\w+=,.@\-]")
 _SESSION_NAME_MAX_LEN = 64
 
 
-def _sanitize_session_name(email: str) -> str:
-    """Sanitize an email for use as STS RoleSessionName.
+def _sanitize_session_name(raw: str) -> str:
+    """Sanitize a string for use as STS RoleSessionName.
 
     AWS requires RoleSessionName to match [\\w+=,.@\\-]* and be <= 64 chars.
     """
-    return _SESSION_NAME_RE.sub("_", email)[:_SESSION_NAME_MAX_LEN]
+    return _SESSION_NAME_RE.sub("_", raw)[:_SESSION_NAME_MAX_LEN]
 
 
 # ---------------------------------------------------------------------------
@@ -79,13 +80,6 @@ async def create_role(
     )
     if existing.scalar_one_or_none() is not None:
         raise ConflictError("A role with this name already exists on this account")
-
-    # At least one of allowed_groups or allowed_users must be specified
-    if not body.allowed_groups and not body.allowed_users:
-        raise GroundworkError(
-            "At least one of allowed_groups or allowed_users is required",
-            status_code=400,
-        )
 
     # If template_id provided, use its managed_policy_arns
     managed_policy_arns = body.managed_policy_arns
@@ -134,9 +128,10 @@ async def create_role(
         user_agent=request.headers.get("user-agent"),
     )
 
+    await db.commit()
     await db.refresh(role)
 
-    # Launch job as background task
+    # Launch job as background task (after commit so the row is visible)
     task = asyncio.create_task(execute_job(job.id))
     request.app.state.background_tasks.add(task)
     task.add_done_callback(request.app.state.background_tasks.discard)
@@ -221,11 +216,6 @@ async def update_role(
             )
 
         db.add(job)
-        await db.flush()
-
-        task = asyncio.create_task(execute_job(job.id))
-        request.app.state.background_tasks.add(task)
-        task.add_done_callback(request.app.state.background_tasks.discard)
 
     await log_event(
         db,
@@ -238,8 +228,15 @@ async def update_role(
         user_agent=request.headers.get("user-agent"),
     )
 
-    await db.flush()
+    await db.commit()
     await db.refresh(role)
+
+    # Launch job after commit so the row is visible to the job's session
+    if iam_changes:
+        task = asyncio.create_task(execute_job(job.id))
+        request.app.state.background_tasks.add(task)
+        task.add_done_callback(request.app.state.background_tasks.discard)
+
     return role
 
 
@@ -293,6 +290,9 @@ async def delete_role(
         user_agent=request.headers.get("user-agent"),
     )
 
+    await db.commit()
+
+    # Launch job after commit so the row is visible to the job's session
     task = asyncio.create_task(execute_job(job.id))
     request.app.state.background_tasks.add(task)
     task.add_done_callback(request.app.state.background_tasks.discard)
@@ -310,7 +310,9 @@ async def list_roles(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Role).options(joinedload(Role.account)))
+    result = await db.execute(
+        select(Role).options(joinedload(Role.account)).order_by(Role.role_name)
+    )
     roles = result.scalars().unique().all()
 
     # Filter to roles the user can access:
@@ -378,10 +380,14 @@ async def federate(
     if method == "cli":
         credentials = await aws.assume_role(
             role_arn=loaded_role.role_arn,
-            session_name=_sanitize_session_name(user.email),
+            session_name=_sanitize_session_name(f"Groundwork-{user.preferred_username}"),
             external_id=external_id,
             session_duration=loaded_role.api_session_duration,
         )
+
+        loaded_role.last_used_at = datetime.now(timezone.utc)
+        db.add(loaded_role)
+        await db.flush()
 
         await log_event(
             db,
@@ -409,10 +415,14 @@ async def federate(
         # Console method
         credentials = await aws.assume_role(
             role_arn=loaded_role.role_arn,
-            session_name=_sanitize_session_name(user.email),
+            session_name=_sanitize_session_name(f"Groundwork-{user.preferred_username}"),
             external_id=external_id,
             session_duration=loaded_role.console_session_duration,
         )
+
+        loaded_role.last_used_at = datetime.now(timezone.utc)
+        db.add(loaded_role)
+        await db.flush()
 
         console_url = await aws.get_console_url(
             credentials=credentials,

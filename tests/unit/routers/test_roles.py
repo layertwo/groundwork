@@ -178,17 +178,19 @@ class TestCreateRole:
 
         assert response.status_code == 400
 
-    async def test_create_role_empty_groups_and_users_returns_400(self, client, db_session):
+    async def test_create_role_empty_groups_and_users_allowed(self, client, db_session):
+        """Roles can be created without access restrictions (configured later)."""
         admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
         account = await _create_active_account(db_session, admin)
 
-        response = await client.post(
-            f"/api/accounts/{account.id}/roles",
-            json={"role_name": "NoAccess", "allowed_groups": [], "allowed_users": []},
-            cookies=_cookies(session_id),
-        )
+        with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
+            response = await client.post(
+                f"/api/accounts/{account.id}/roles",
+                json={"role_name": "NoAccess", "allowed_groups": [], "allowed_users": []},
+                cookies=_cookies(session_id),
+            )
 
-        assert response.status_code == 400
+        assert response.status_code == 201
 
     async def test_create_role_job_created(self, client, db_session):
         admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
@@ -437,6 +439,56 @@ class TestListRoles:
         data = response.json()
         names = [r["role_name"] for r in data]
         assert "AdminVisible" in names
+
+    async def test_list_roles_alphabetical_order(self, client, db_session):
+        """Roles are returned sorted alphabetically by role_name."""
+        admin, session_id = await _create_authenticated_user(
+            db_session, is_admin=True, groups=[], sub="admin-alpha-sort"
+        )
+        account = await _create_active_account(db_session, admin)
+
+        for name in ["Zebra", "Admin", "PowerUser"]:
+            db_session.add(
+                Role(
+                    account_id=account.id,
+                    role_name=name,
+                    role_arn=f"arn:aws:iam::123456789012:role/{name}",
+                    allowed_groups=["devs"],
+                    status="active",
+                )
+            )
+        await db_session.flush()
+
+        response = await client.get("/api/roles", cookies=_cookies(session_id))
+
+        assert response.status_code == 200
+        names = [r["role_name"] for r in response.json()]
+        assert names == sorted(names)
+
+    async def test_list_roles_includes_last_used_at(self, client, db_session):
+        """RoleResponse includes last_used_at field."""
+        admin, session_id = await _create_authenticated_user(
+            db_session, is_admin=True, groups=[], sub="admin-last-used-list"
+        )
+        account = await _create_active_account(db_session, admin)
+        db_session.add(
+            Role(
+                account_id=account.id,
+                role_name="TestRole",
+                role_arn="arn:aws:iam::123456789012:role/TestRole",
+                allowed_groups=["devs"],
+                status="active",
+            )
+        )
+        await db_session.flush()
+
+        response = await client.get("/api/roles", cookies=_cookies(session_id))
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 1
+        assert "last_used_at" in data[0]
+        assert data[0]["last_used_at"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -822,6 +874,31 @@ class TestFederate:
         )
         assert response.status_code == 401
 
+    async def test_session_name_uses_preferred_username(self, client, db_session):
+        """Federation uses Groundwork-<preferred_username> as session name."""
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-session-name"
+        )
+        user.preferred_username = "alice"
+        db_session.add(user)
+        await db_session.flush()
+
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        with patch("backend.routers.roles.aws.assume_role", new_callable=AsyncMock) as mock_assume:
+            mock_assume.return_value = FAKE_STS_CREDS
+
+            await client.get(
+                f"/api/federate?account_id={account.aws_account_id}"
+                f"&role={role.role_name}&method=cli",
+                cookies=_cookies(session_id),
+            )
+
+        call_kwargs = mock_assume.call_args.kwargs
+        assert call_kwargs["session_name"] == "Groundwork-alice"
+
     async def test_old_assume_endpoint_removed(self, client, db_session):
         """POST /api/roles/assume should no longer exist."""
         user, session_id = await _create_user_with_tokens(
@@ -849,6 +926,29 @@ class TestFederate:
         )
 
         assert response.status_code in (404, 405)
+
+    async def test_federate_updates_last_used_at(self, client, db_session):
+        """Federation updates the role's last_used_at timestamp."""
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-last-used"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        assert role.last_used_at is None
+
+        with patch("backend.routers.roles.aws.assume_role", new_callable=AsyncMock) as mock_assume:
+            mock_assume.return_value = FAKE_STS_CREDS
+
+            await client.get(
+                f"/api/federate?account_id={account.aws_account_id}"
+                f"&role={role.role_name}&method=cli",
+                cookies=_cookies(session_id),
+            )
+
+        await db_session.refresh(role)
+        assert role.last_used_at is not None
 
 
 # ---------------------------------------------------------------------------

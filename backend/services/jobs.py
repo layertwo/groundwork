@@ -14,6 +14,12 @@ from backend.models.job import Job
 from backend.models.role import Role
 from backend.services import aws
 from backend.services.audit import log_event
+from backend.services.events import (
+    emit_account_updated,
+    emit_accounts_synced,
+    emit_job_updated,
+    emit_role_updated,
+)
 from backend.services.system_user import get_or_create_system_user
 
 logger = logging.getLogger(__name__)
@@ -159,6 +165,8 @@ async def run_provision_account(job: Job, db: AsyncSession) -> None:
         account.status = "provisioning"
         db.add(account)
         await db.commit()
+        emit_account_updated(str(account.id))
+        emit_job_updated(str(job.id), str(account.id))
 
         request_id = await aws.create_account(
             account_name=account.account_name,
@@ -216,6 +224,8 @@ async def run_provision_account(job: Job, db: AsyncSession) -> None:
             detail={"aws_account_id": account.aws_account_id},
         )
         await db.commit()
+        emit_account_updated(str(account.id))
+        emit_job_updated(str(job.id), str(account.id))
 
     except Exception as exc:
         logger.exception("Provisioning failed for account %s", account.id)
@@ -238,6 +248,8 @@ async def run_provision_account(job: Job, db: AsyncSession) -> None:
             detail={"error": safe_msg},
         )
         await db.commit()
+        emit_account_updated(str(account.id))
+        emit_job_updated(str(job.id), str(account.id))
 
 
 async def run_bootstrap_account(job: Job, db: AsyncSession) -> None:
@@ -282,6 +294,8 @@ async def run_bootstrap_account(job: Job, db: AsyncSession) -> None:
             detail={"aws_account_id": account.aws_account_id},
         )
         await db.commit()
+        emit_account_updated(str(account.id))
+        emit_job_updated(str(job.id), str(account.id))
 
     except Exception as exc:
         logger.exception("Bootstrap failed for account %s", account.id)
@@ -304,6 +318,8 @@ async def run_bootstrap_account(job: Job, db: AsyncSession) -> None:
             detail={"error": safe_msg},
         )
         await db.commit()
+        emit_account_updated(str(account.id))
+        emit_job_updated(str(job.id), str(account.id))
 
 
 async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
@@ -426,6 +442,8 @@ async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
             detail=counts,
         )
         await db.commit()
+        emit_accounts_synced()
+        emit_job_updated(str(job.id))
 
         # Fire bootstrap tasks after commit so child jobs can find their rows
         for bj_id in bootstrap_job_ids:
@@ -447,6 +465,7 @@ async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
             detail={"error": safe_msg},
         )
         await db.commit()
+        emit_job_updated(str(job.id))
 
 
 async def run_create_role(job: Job, db: AsyncSession) -> None:
@@ -499,6 +518,8 @@ async def run_create_role(job: Job, db: AsyncSession) -> None:
             detail={"role_arn": role_arn, "account_id": str(account.id)},
         )
         await db.commit()
+        emit_role_updated(str(role.id), str(account.id))
+        emit_job_updated(str(job.id), str(job.account_id))
 
     except Exception as exc:
         logger.exception("Role creation failed for role %s", role_id)
@@ -522,6 +543,8 @@ async def run_create_role(job: Job, db: AsyncSession) -> None:
             detail={"error": safe_msg},
         )
         await db.commit()
+        emit_role_updated(str(role.id), str(account.id))
+        emit_job_updated(str(job.id), str(job.account_id))
 
 
 async def run_update_role(job: Job, db: AsyncSession) -> None:
@@ -572,6 +595,8 @@ async def run_update_role(job: Job, db: AsyncSession) -> None:
             detail={"changes": list(changes.keys())},
         )
         await db.commit()
+        emit_role_updated(str(role.id), str(account.id))
+        emit_job_updated(str(job.id), str(job.account_id))
 
     except Exception as exc:
         logger.exception("Role update failed for role %s", role_id)
@@ -595,6 +620,8 @@ async def run_update_role(job: Job, db: AsyncSession) -> None:
             detail={"error": safe_msg},
         )
         await db.commit()
+        emit_role_updated(str(role.id), str(account.id))
+        emit_job_updated(str(job.id), str(job.account_id))
 
 
 async def run_delete_role(job: Job, db: AsyncSession) -> None:
@@ -631,6 +658,8 @@ async def run_delete_role(job: Job, db: AsyncSession) -> None:
             detail={"role_name": role_name, "aws_account_id": aws_account_id},
         )
         await db.commit()
+        emit_role_updated(str(role_id), str(job.account_id))
+        emit_job_updated(str(job.id), str(job.account_id))
 
     except Exception as exc:
         logger.exception("Role deletion failed for role %s", role_id)
@@ -658,6 +687,8 @@ async def run_delete_role(job: Job, db: AsyncSession) -> None:
             detail={"error": safe_msg},
         )
         await db.commit()
+        emit_role_updated(str(role_id), str(job.account_id))
+        emit_job_updated(str(job.id), str(job.account_id))
 
 
 BOOTSTRAP_REPAIR_DELAY = timedelta(minutes=5)

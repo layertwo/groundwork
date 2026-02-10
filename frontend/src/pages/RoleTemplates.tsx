@@ -1,7 +1,14 @@
 import { useState, useMemo } from 'react'
+import { toast } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import {
+  HoverCard,
+  HoverCardTrigger,
+  HoverCardContent,
+} from '@/components/ui/hover-card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -18,6 +25,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useAuth } from '@/context/AuthContext'
 import {
   getRoleTemplates,
@@ -51,6 +68,7 @@ export default function RoleTemplates() {
   const [form, setForm] = useState<TemplateFormState>(emptyForm)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [deleteTemplate, setDeleteTemplate] = useState<RoleTemplateResponse | null>(null)
 
   const { data: templates, isLoading } = useQuery({
     queryKey: ['role-templates'],
@@ -106,6 +124,7 @@ export default function RoleTemplates() {
         })
       }
       queryClient.invalidateQueries({ queryKey: ['role-templates'] })
+      toast.success(editing ? 'Template updated' : 'Template created')
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to save template')
@@ -114,13 +133,16 @@ export default function RoleTemplates() {
     }
   }
 
-  const handleDelete = async (template: RoleTemplateResponse) => {
-    if (!confirm(`Delete template "${template.name}"?`)) return
+  const handleDelete = async () => {
+    if (!deleteTemplate) return
     try {
-      await deleteRoleTemplate(template.id)
+      await deleteRoleTemplate(deleteTemplate.id)
       queryClient.invalidateQueries({ queryKey: ['role-templates'] })
+      toast.success('Template deleted')
     } catch (err) {
-      alert(err instanceof ApiError ? err.detail : 'Failed to delete template')
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to delete template')
+    } finally {
+      setDeleteTemplate(null)
     }
   }
 
@@ -146,7 +168,7 @@ export default function RoleTemplates() {
       ) : filtered.length === 0 ? (
         <div className="text-muted-foreground">No templates match your search.</div>
       ) : (
-        <div className="rounded-lg border bg-card">
+        <Card>
           <Table>
             <TableHeader>
               <TableRow>
@@ -167,9 +189,16 @@ export default function RoleTemplates() {
                     <div className="flex flex-wrap gap-1">
                       {template.managed_policy_arns.length > 0
                         ? template.managed_policy_arns.map((arn) => (
-                            <Badge key={arn} variant="outline" className="text-xs font-mono">
-                              {arn.split('/').pop()}
-                            </Badge>
+                            <HoverCard key={arn} openDelay={200} closeDelay={0}>
+                              <HoverCardTrigger asChild>
+                                <Badge variant="outline" className="text-xs font-mono cursor-default">
+                                  {arn.split('/').pop()}
+                                </Badge>
+                              </HoverCardTrigger>
+                              <HoverCardContent className="w-auto max-w-sm">
+                                <p className="text-xs font-mono break-all">{arn}</p>
+                              </HoverCardContent>
+                            </HoverCard>
                           ))
                         : '—'}
                     </div>
@@ -188,7 +217,7 @@ export default function RoleTemplates() {
                           variant="ghost"
                           size="sm"
                           className="text-destructive"
-                          onClick={() => handleDelete(template)}
+                          onClick={() => setDeleteTemplate(template)}
                         >
                           Delete
                         </Button>
@@ -199,7 +228,7 @@ export default function RoleTemplates() {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </Card>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -247,6 +276,21 @@ export default function RoleTemplates() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTemplate} onOpenChange={(open) => !open && setDeleteTemplate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete template?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete template "{deleteTemplate?.name}"? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

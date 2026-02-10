@@ -5,6 +5,8 @@ export interface RoleResponse {
   account_id: string
   role_name: string
   role_arn: string
+  status: string
+  error_message: string | null
   allowed_groups: string[]
   managed_policy_arns: string[]
   inline_policy: Record<string, unknown> | null
@@ -14,6 +16,7 @@ export interface RoleResponse {
   description: string | null
   created_at: string
   updated_at: string
+  last_used_at: string | null
 }
 
 export interface RoleCreate {

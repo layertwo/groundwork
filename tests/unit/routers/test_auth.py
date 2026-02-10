@@ -103,6 +103,39 @@ class TestCallback:
         assert updated_user.display_name == "Updated Name"
         assert updated_user.groups == ["new-group"]
 
+    async def test_callback_stores_preferred_username(
+        self, client, db_session, mock_oidc_exchange, mock_oidc_validate
+    ):
+        session = Session(
+            state="test-state-pu", nonce="test-nonce-pu", created_at=datetime.now(timezone.utc)
+        )
+        db_session.add(session)
+        await db_session.flush()
+
+        nonce = "test-nonce-pu"
+        tokens = make_token_response(nonce=nonce)
+        mock_oidc_exchange.return_value = tokens
+        mock_oidc_validate.return_value = {
+            "sub": "pu-user-sub",
+            "email": "alice@example.com",
+            "name": "Alice Smith",
+            "preferred_username": "alice",
+            "groups": ["devs"],
+            "nonce": nonce,
+        }
+
+        response = await client.get(
+            "/api/auth/callback",
+            params={"code": "auth-code", "state": "test-state-pu"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 302
+
+        result = await db_session.execute(select(User).where(User.sub == "pu-user-sub"))
+        user = result.scalar_one()
+        assert user.preferred_username == "alice"
+
     async def test_callback_invalid_state_returns_401(self, client):
         response = await client.get(
             "/api/auth/callback",

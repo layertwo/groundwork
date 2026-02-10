@@ -1,9 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Folder, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -18,6 +22,7 @@ import { listRoles } from '@/api/roles'
 import { createJob } from '@/api/jobs'
 import FederateDropdown from '@/components/FederateDropdown'
 import SearchInput from '@/components/SearchInput'
+import { consumeRedirectUrl } from '@/components/ProtectedRoute'
 
 function statusVariant(status: string) {
   switch (status) {
@@ -50,6 +55,17 @@ export default function Dashboard() {
   const [search, setSearch] = useState('')
   const [showClosed, setShowClosed] = useState(false)
 
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      const redirect = consumeRedirectUrl()
+      if (redirect) {
+        navigate(redirect, { replace: true })
+      }
+    }
+  }, [isAuthenticated, navigate])
+
   const { data: accounts, isLoading: accountsLoading } = useQuery({
     queryKey: ['accounts'],
     queryFn: listAccounts,
@@ -62,11 +78,14 @@ export default function Dashboard() {
     enabled: isAuthenticated,
   })
 
-  const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const syncMutation = useMutation({
     mutationFn: () => createJob({ job_type: 'sync_accounts' }),
-    onSuccess: () => navigate('/jobs'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      navigate('/jobs')
+    },
   })
 
   const rolesByAccount = useMemo(() => {
@@ -112,7 +131,13 @@ export default function Dashboard() {
   }, [accounts, search, showClosed])
 
   if (authLoading) {
-    return <div className="flex items-center justify-center h-64">Loading...</div>
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    )
   }
 
   if (!isAuthenticated) {
@@ -147,15 +172,16 @@ export default function Dashboard() {
       />
 
       {accounts && accounts.some((a) => a.aws_status && a.aws_status !== 'ACTIVE') && (
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="show-closed"
             checked={showClosed}
-            onChange={(e) => setShowClosed(e.target.checked)}
-            className="rounded"
+            onCheckedChange={(checked) => setShowClosed(checked === true)}
           />
-          Show suspended/closed accounts
-        </label>
+          <Label htmlFor="show-closed" className="text-sm text-muted-foreground font-normal cursor-pointer">
+            Show suspended/closed accounts
+          </Label>
+        </div>
       )}
 
       {accountsLoading ? (
@@ -165,7 +191,7 @@ export default function Dashboard() {
       ) : grouped.length === 0 ? (
         <div className="text-muted-foreground">No accounts match your search.</div>
       ) : (
-        <div className="rounded-lg border bg-card">
+        <Card>
           <Table>
             <TableHeader>
               <TableRow>
@@ -230,7 +256,7 @@ export default function Dashboard() {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </Card>
       )}
     </div>
   )
