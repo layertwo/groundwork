@@ -872,6 +872,31 @@ class TestFederate:
         )
         assert response.status_code == 401
 
+    async def test_session_name_uses_preferred_username(self, client, db_session):
+        """Federation uses Groundwork-<preferred_username> as session name."""
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-session-name"
+        )
+        user.preferred_username = "alice"
+        db_session.add(user)
+        await db_session.flush()
+
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        with patch("backend.routers.roles.aws.assume_role", new_callable=AsyncMock) as mock_assume:
+            mock_assume.return_value = FAKE_STS_CREDS
+
+            await client.get(
+                f"/api/federate?account_id={account.aws_account_id}"
+                f"&role={role.role_name}&method=cli",
+                cookies=_cookies(session_id),
+            )
+
+        call_kwargs = mock_assume.call_args.kwargs
+        assert call_kwargs["session_name"] == "Groundwork-alice"
+
     async def test_old_assume_endpoint_removed(self, client, db_session):
         """POST /api/roles/assume should no longer exist."""
         user, session_id = await _create_user_with_tokens(

@@ -41,12 +41,12 @@ _SESSION_NAME_RE = re.compile(r"[^\w+=,.@\-]")
 _SESSION_NAME_MAX_LEN = 64
 
 
-def _sanitize_session_name(email: str) -> str:
-    """Sanitize an email for use as STS RoleSessionName.
+def _sanitize_session_name(raw: str) -> str:
+    """Sanitize a string for use as STS RoleSessionName.
 
     AWS requires RoleSessionName to match [\\w+=,.@\\-]* and be <= 64 chars.
     """
-    return _SESSION_NAME_RE.sub("_", email)[:_SESSION_NAME_MAX_LEN]
+    return _SESSION_NAME_RE.sub("_", raw)[:_SESSION_NAME_MAX_LEN]
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +381,7 @@ async def federate(
     if method == "cli":
         credentials = await aws.assume_role(
             role_arn=loaded_role.role_arn,
-            session_name=_sanitize_session_name(user.email),
+            session_name=_sanitize_session_name(f"Groundwork-{user.preferred_username}"),
             external_id=external_id,
             session_duration=loaded_role.api_session_duration,
         )
@@ -416,7 +416,7 @@ async def federate(
         # Console method
         credentials = await aws.assume_role(
             role_arn=loaded_role.role_arn,
-            session_name=_sanitize_session_name(user.email),
+            session_name=_sanitize_session_name(f"Groundwork-{user.preferred_username}"),
             external_id=external_id,
             session_duration=loaded_role.console_session_duration,
         )
