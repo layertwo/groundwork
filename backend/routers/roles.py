@@ -300,6 +300,67 @@ async def delete_role(
     return Response(status_code=202)
 
 
+@router.post(
+    "/api/accounts/{account_id}/roles/{role_id}/fix-drift",
+    status_code=202,
+)
+async def fix_drift(
+    account_id: UUID,
+    role_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    result = await db.execute(select(Role).where(Role.id == role_id, Role.account_id == account_id))
+    role = result.scalar_one_or_none()
+    if role is None:
+        raise NotFoundError("Role not found")
+
+    if role.status != "drifted":
+        raise GroundworkError("Role is not in drifted state", status_code=400)
+
+    changes = {
+        "managed_policy_arns": role.managed_policy_arns,
+        "api_session_duration": role.api_session_duration,
+        "console_session_duration": role.console_session_duration,
+    }
+    if role.inline_policy is not None:
+        changes["inline_policy"] = role.inline_policy
+
+    role.status = "updating"
+    role.error_message = None
+    db.add(role)
+
+    job = Job(
+        account_id=account_id,
+        job_type="update_role",
+        status="pending",
+        started_by=admin.id,
+        result={"role_id": str(role.id), "changes": changes},
+    )
+    db.add(job)
+    await db.flush()
+
+    await log_event(
+        db,
+        action="role.fix_drift",
+        user_id=admin.id,
+        resource_type="role",
+        resource_id=str(role.id),
+        detail={"account_id": str(account_id)},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    await db.commit()
+
+    task = asyncio.create_task(execute_job(job.id))
+    request.app.state.background_tasks.add(task)
+    task.add_done_callback(request.app.state.background_tasks.discard)
+
+    return Response(status_code=202)
+
+
 # ---------------------------------------------------------------------------
 # Role listing (cross-account, filtered by user access)
 # ---------------------------------------------------------------------------
