@@ -10,6 +10,10 @@ from urllib.parse import quote
 
 import aioboto3
 import aiohttp
+import httpx
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+from botocore.credentials import Credentials
 from botocore.exceptions import ClientError
 
 from backend.config import settings
@@ -438,6 +442,73 @@ async def delete_account_alias(aws_account_id: str, alias: str) -> None:
     async with target_session.client("iam") as iam:
         await iam.delete_account_alias(AccountAlias=alias)
     logger.info("Deleted account alias '%s' from account %s", alias, aws_account_id)
+
+
+# ---------------------------------------------------------------------------
+# Account color management (UXC service — no boto3 support)
+# ---------------------------------------------------------------------------
+
+UXC_ENDPOINT = "https://uxc.us-east-1.api.aws/v1/account-color"
+UXC_SERVICE = "uxc"
+UXC_REGION = "us-east-1"
+
+VALID_ACCOUNT_COLORS = frozenset(
+    {"none", "pink", "purple", "darkBlue", "lightBlue", "teal", "green", "yellow", "orange", "red"}
+)
+
+
+async def _uxc_request(session, method: str, body: str | None = None) -> dict | None:
+    """Make a SigV4-signed request to the UXC service.
+
+    ``session`` is an aioboto3.Session with credentials for the target account.
+    """
+    creds = session.get_credentials().get_frozen_credentials()
+    botocore_creds = Credentials(
+        access_key=creds.access_key,
+        secret_key=creds.secret_key,
+        token=creds.token,
+    )
+
+    headers = {"Content-Type": "application/json"}
+    aws_request = AWSRequest(method=method, url=UXC_ENDPOINT, data=body, headers=headers)
+    SigV4Auth(botocore_creds, UXC_SERVICE, UXC_REGION).add_auth(aws_request)
+
+    async with httpx.AsyncClient() as client:
+        response = await client.request(
+            method,
+            UXC_ENDPOINT,
+            headers=dict(aws_request.headers),
+            content=body,
+        )
+        response.raise_for_status()
+        return json.loads(response.content) if response.content else None
+
+
+async def get_account_color(aws_account_id: str) -> str | None:
+    """Get the console color for a member account.
+
+    Returns the color string (e.g. "red", "green"), or None if no color
+    is set (color is "none").
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+    result = await _uxc_request(target_session, "GET")
+    color = result.get("color") if result else None
+    return None if color == "none" else color
+
+
+async def set_account_color(aws_account_id: str, color: str) -> None:
+    """Set the console color for a member account."""
+    target_session = await assume_groundwork_admin(aws_account_id)
+    body = json.dumps({"color": color})
+    await _uxc_request(target_session, "PUT", body)
+    logger.info("Set account color '%s' for account %s", color, aws_account_id)
+
+
+async def delete_account_color(aws_account_id: str) -> None:
+    """Delete the console color for a member account."""
+    target_session = await assume_groundwork_admin(aws_account_id)
+    await _uxc_request(target_session, "DELETE")
+    logger.info("Deleted account color from account %s", aws_account_id)
 
 
 # ---------------------------------------------------------------------------
