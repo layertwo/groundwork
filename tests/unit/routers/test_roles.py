@@ -438,6 +438,31 @@ class TestListRoles:
         names = [r["role_name"] for r in data]
         assert "AdminVisible" in names
 
+    async def test_list_roles_alphabetical_order(self, client, db_session):
+        """Roles are returned sorted alphabetically by role_name."""
+        admin, session_id = await _create_authenticated_user(
+            db_session, is_admin=True, groups=[], sub="admin-alpha-sort"
+        )
+        account = await _create_active_account(db_session, admin)
+
+        for name in ["Zebra", "Admin", "PowerUser"]:
+            db_session.add(
+                Role(
+                    account_id=account.id,
+                    role_name=name,
+                    role_arn=f"arn:aws:iam::123456789012:role/{name}",
+                    allowed_groups=["devs"],
+                    status="active",
+                )
+            )
+        await db_session.flush()
+
+        response = await client.get("/api/roles", cookies=_cookies(session_id))
+
+        assert response.status_code == 200
+        names = [r["role_name"] for r in response.json()]
+        assert names == sorted(names)
+
 
 # ---------------------------------------------------------------------------
 # Role template tests (carried over from Phase 1)

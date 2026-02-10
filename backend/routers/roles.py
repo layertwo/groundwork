@@ -310,7 +310,9 @@ async def list_roles(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Role).options(joinedload(Role.account)))
+    result = await db.execute(
+        select(Role).options(joinedload(Role.account)).order_by(Role.role_name)
+    )
     roles = result.scalars().unique().all()
 
     # Filter to roles the user can access:
