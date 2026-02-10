@@ -463,6 +463,31 @@ class TestListRoles:
         names = [r["role_name"] for r in response.json()]
         assert names == sorted(names)
 
+    async def test_list_roles_includes_last_used_at(self, client, db_session):
+        """RoleResponse includes last_used_at field."""
+        admin, session_id = await _create_authenticated_user(
+            db_session, is_admin=True, groups=[], sub="admin-last-used-list"
+        )
+        account = await _create_active_account(db_session, admin)
+        db_session.add(
+            Role(
+                account_id=account.id,
+                role_name="TestRole",
+                role_arn="arn:aws:iam::123456789012:role/TestRole",
+                allowed_groups=["devs"],
+                status="active",
+            )
+        )
+        await db_session.flush()
+
+        response = await client.get("/api/roles", cookies=_cookies(session_id))
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 1
+        assert "last_used_at" in data[0]
+        assert data[0]["last_used_at"] is None
+
 
 # ---------------------------------------------------------------------------
 # Role template tests (carried over from Phase 1)
@@ -874,6 +899,29 @@ class TestFederate:
         )
 
         assert response.status_code in (404, 405)
+
+    async def test_federate_updates_last_used_at(self, client, db_session):
+        """Federation updates the role's last_used_at timestamp."""
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-last-used"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        assert role.last_used_at is None
+
+        with patch("backend.routers.roles.aws.assume_role", new_callable=AsyncMock) as mock_assume:
+            mock_assume.return_value = FAKE_STS_CREDS
+
+            await client.get(
+                f"/api/federate?account_id={account.aws_account_id}"
+                f"&role={role.role_name}&method=cli",
+                cookies=_cookies(session_id),
+            )
+
+        await db_session.refresh(role)
+        assert role.last_used_at is not None
 
 
 # ---------------------------------------------------------------------------

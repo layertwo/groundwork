@@ -1,5 +1,6 @@
 import asyncio
 import re
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -385,6 +386,10 @@ async def federate(
             session_duration=loaded_role.api_session_duration,
         )
 
+        loaded_role.last_used_at = datetime.now(timezone.utc)
+        db.add(loaded_role)
+        await db.flush()
+
         await log_event(
             db,
             action="role.assume",
@@ -415,6 +420,10 @@ async def federate(
             external_id=external_id,
             session_duration=loaded_role.console_session_duration,
         )
+
+        loaded_role.last_used_at = datetime.now(timezone.utc)
+        db.add(loaded_role)
+        await db.flush()
 
         console_url = await aws.get_console_url(
             credentials=credentials,

@@ -129,6 +129,7 @@ class RoleResponse(BaseModel):
     description: Optional[str]
     created_at: datetime
     updated_at: datetime
+    last_used_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
