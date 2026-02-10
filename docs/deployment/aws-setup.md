@@ -128,12 +128,23 @@ instance profile, Kubernetes IRSA, etc.).
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
       "Resource": "arn:aws:iam::*:role/GroundworkAdmin-DO-NOT-DELETE"
+    },
+    {
+      "Sid": "AssumeUserRolesWithExternalId",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/*",
+      "Condition": {
+        "StringLike": {
+          "sts:ExternalId": "Groundwork-*"
+        }
+      }
     }
   ]
 }
 ```
 
-The three statements cover:
+The four statements cover:
 
 1. **CloudFormationStackSets** -- permissions to create and monitor the bootstrap StackSet
    that deploys OIDC providers and admin roles into member accounts. These calls use
@@ -145,6 +156,12 @@ The three statements cover:
 3. **AssumeAdminRoleInMemberAccounts** -- allows the Groundwork execution role to assume
    the `GroundworkAdmin-DO-NOT-DELETE` role that the bootstrap StackSet creates in each
    member account. This is how Groundwork manages IAM roles in member accounts.
+4. **AssumeUserRolesWithExternalId** -- allows the Groundwork execution role to assume
+   user-created roles in member accounts for federation (console and CLI access). The
+   `sts:ExternalId` condition restricts this to calls that include an External ID matching
+   the `Groundwork-*` pattern. All Groundwork-managed roles are created with a deterministic
+   External ID in this format (`Groundwork-{SHA-256 hash}`), so this condition scopes
+   assumption to only Groundwork-managed roles without constraining role naming.
 
 ## How it works
 
@@ -153,6 +170,7 @@ The three statements cover:
 | Account creation | Management account (via `GroundworkManagementRole`) | Groundwork assumes the management role and calls Organizations APIs to create the account and move it to a target OU |
 | Account bootstrap | Groundwork account (delegated admin) | A service-managed CloudFormation StackSet auto-deploys an OIDC provider and management role to all member accounts |
 | Role management | Groundwork account -> member account | Groundwork assumes `GroundworkAdmin-DO-NOT-DELETE` in the member account to create/update/delete user-facing IAM roles |
+| Role assumption | Groundwork account -> member account | Groundwork assumes user-created roles via STS with an External ID (`Groundwork-*`) for console and CLI federation |
 
 **What Groundwork deploys via StackSets:** A service-managed StackSet with auto-deploy
 creates two resources in every member account:
