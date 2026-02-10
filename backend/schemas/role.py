@@ -133,10 +133,6 @@ class RoleResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class AssumeRoleRequest(BaseModel):
-    role_id: UUID
-
-
 class AssumeRoleResponse(BaseModel):
     access_key_id: str
     secret_access_key: str

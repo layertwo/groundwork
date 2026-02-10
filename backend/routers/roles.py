@@ -3,7 +3,6 @@ import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -21,7 +20,6 @@ from backend.models.role import Role
 from backend.models.role_template import RoleTemplate
 from backend.models.user import User
 from backend.schemas.role import (
-    AssumeRoleRequest,
     AssumeRoleResponse,
     RoleCreate,
     RoleResponse,
@@ -342,22 +340,6 @@ def _check_role_access(role: Role, user: User) -> None:
         raise GroundworkError("Account is not active", status_code=400)
 
 
-async def _load_role_for_assumption(
-    role_id: UUID,
-    user: User,
-    db: AsyncSession,
-) -> Role:
-    """Load a role by ID and verify the user has access to assume it."""
-    result = await db.execute(
-        select(Role).options(joinedload(Role.account)).where(Role.id == role_id)
-    )
-    role = result.scalar_one_or_none()
-    if role is None:
-        raise NotFoundError("Role not found")
-    _check_role_access(role, user)
-    return role
-
-
 async def _load_role_for_federation(
     aws_account_id: str,
     role_name: str,
@@ -379,50 +361,11 @@ async def _load_role_for_federation(
     return role
 
 
-@router.post("/api/roles/assume", response_model=AssumeRoleResponse)
-async def assume_role(
-    body: AssumeRoleRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    role = await _load_role_for_assumption(body.role_id, user, db)
-
-    external_id = aws.compute_external_id(str(role.id), role.account.aws_account_id)
-    credentials = await aws.assume_role(
-        role_arn=role.role_arn,
-        session_name=_sanitize_session_name(user.email),
-        external_id=external_id,
-        session_duration=role.api_session_duration,
-    )
-
-    await log_event(
-        db,
-        action="role.assume",
-        user_id=user.id,
-        resource_type="role",
-        resource_id=str(role.id),
-        detail={
-            "role_name": role.role_name,
-            "account_id": str(role.account_id),
-            "role_arn": role.role_arn,
-        },
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-
-    return AssumeRoleResponse(
-        access_key_id=credentials["access_key_id"],
-        secret_access_key=credentials["secret_access_key"],
-        session_token=credentials["session_token"],
-        expiration=credentials["expiration"],
-    )
-
-
 @router.get("/api/federate")
 async def federate(
     account_id: str = Query(min_length=12, max_length=12, pattern=r"^\d{12}$"),
     role: str = Query(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_+=,.@\-]+$"),
+    method: str = Query(default="console", pattern=r"^(console|cli)$"),
     *,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -431,35 +374,69 @@ async def federate(
     loaded_role = await _load_role_for_federation(account_id, role, user, db)
 
     external_id = aws.compute_external_id(str(loaded_role.id), loaded_role.account.aws_account_id)
-    credentials = await aws.assume_role(
-        role_arn=loaded_role.role_arn,
-        session_name=_sanitize_session_name(user.email),
-        external_id=external_id,
-        session_duration=loaded_role.console_session_duration,
-    )
 
-    console_url = await aws.get_console_url(
-        credentials=credentials,
-        console_session_duration=loaded_role.console_session_duration,
-        issuer=settings.app_url,
-    )
+    if method == "cli":
+        credentials = await aws.assume_role(
+            role_arn=loaded_role.role_arn,
+            session_name=_sanitize_session_name(user.email),
+            external_id=external_id,
+            session_duration=loaded_role.api_session_duration,
+        )
 
-    await log_event(
-        db,
-        action="role.federate",
-        user_id=user.id,
-        resource_type="role",
-        resource_id=str(loaded_role.id),
-        detail={
-            "role_name": loaded_role.role_name,
-            "account_id": str(loaded_role.account_id),
-            "role_arn": loaded_role.role_arn,
-        },
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
+        await log_event(
+            db,
+            action="role.assume",
+            user_id=user.id,
+            resource_type="role",
+            resource_id=str(loaded_role.id),
+            detail={
+                "role_name": loaded_role.role_name,
+                "account_id": str(loaded_role.account_id),
+                "role_arn": loaded_role.role_arn,
+                "method": "cli",
+            },
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
 
-    return RedirectResponse(url=console_url, status_code=302)
+        return AssumeRoleResponse(
+            access_key_id=credentials["access_key_id"],
+            secret_access_key=credentials["secret_access_key"],
+            session_token=credentials["session_token"],
+            expiration=credentials["expiration"],
+        )
+    else:
+        # Console method
+        credentials = await aws.assume_role(
+            role_arn=loaded_role.role_arn,
+            session_name=_sanitize_session_name(user.email),
+            external_id=external_id,
+            session_duration=loaded_role.console_session_duration,
+        )
+
+        console_url = await aws.get_console_url(
+            credentials=credentials,
+            console_session_duration=loaded_role.console_session_duration,
+            issuer=settings.app_url,
+        )
+
+        await log_event(
+            db,
+            action="role.federate",
+            user_id=user.id,
+            resource_type="role",
+            resource_id=str(loaded_role.id),
+            detail={
+                "role_name": loaded_role.role_name,
+                "account_id": str(loaded_role.account_id),
+                "role_arn": loaded_role.role_arn,
+                "method": "console",
+            },
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+
+        return {"console_url": console_url}
 
 
 # ---------------------------------------------------------------------------
