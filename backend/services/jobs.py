@@ -73,14 +73,21 @@ async def execute_job(job_id: uuid.UUID) -> None:
     If the job has a ``scheduled_after`` value in the future, sleeps outside
     any DB session to avoid holding a connection pool slot.
     """
-    # Check for scheduled delay in a short-lived session
-    async with async_session_factory() as db:
-        result = await db.execute(select(Job.scheduled_after).where(Job.id == job_id))
-        row = result.one_or_none()
-        if row is None:
-            logger.error("Job %s not found", job_id)
-            return
-        scheduled_after = row[0]
+    # Check for scheduled delay in a short-lived session.
+    # Retry briefly — the caller's transaction may not have committed yet
+    # when this task is dispatched via asyncio.create_task().
+    scheduled_after = None
+    for attempt in range(5):
+        async with async_session_factory() as db:
+            result = await db.execute(select(Job.scheduled_after).where(Job.id == job_id))
+            row = result.one_or_none()
+            if row is not None:
+                scheduled_after = row[0]
+                break
+        await asyncio.sleep(0.5)
+    else:
+        logger.error("Job %s not found after retries", job_id)
+        return
 
     if scheduled_after is not None:
         delay = (scheduled_after - datetime.now(timezone.utc)).total_seconds()

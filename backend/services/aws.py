@@ -484,7 +484,9 @@ async def _uxc_request(creds: Credentials, method: str, body: str | None = None)
 
     ``creds`` is a botocore Credentials object for the target account.
     """
-    headers = {"Content-Type": "application/json"}
+    headers = {}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
     aws_request = AWSRequest(method=method, url=UXC_ENDPOINT, data=body, headers=headers)
     SigV4Auth(creds, UXC_SERVICE, UXC_REGION).add_auth(aws_request)
 
