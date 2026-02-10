@@ -1,5 +1,6 @@
 """Tests for AWS IAM role management functions."""
 
+import hashlib
 import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,66 +15,56 @@ AWS_ACCOUNT_ID = "123456789012"
 ROLE_NAME = "TestRole"
 
 
+class TestComputeExternalId:
+    def test_format(self):
+        """External ID is Groundwork- prefix + 16 hex chars of SHA-256."""
+        eid = aws.compute_external_id("role-uuid", "account-uuid")
+        assert eid.startswith("Groundwork-")
+        hex_part = eid[len("Groundwork-") :]
+        assert len(hex_part) == 16
+        int(hex_part, 16)
+
+    def test_deterministic(self):
+        """Same inputs produce the same External ID."""
+        eid1 = aws.compute_external_id("role-1", "account-1")
+        eid2 = aws.compute_external_id("role-1", "account-1")
+        assert eid1 == eid2
+
+    def test_different_inputs_differ(self):
+        """Different role/account combos produce different External IDs."""
+        eid1 = aws.compute_external_id("role-1", "account-1")
+        eid2 = aws.compute_external_id("role-2", "account-1")
+        assert eid1 != eid2
+
+    def test_sha256_based(self):
+        """Verify the hash matches expected SHA-256 computation."""
+        expected = hashlib.sha256("role-1account-1".encode()).hexdigest()[:16]
+        eid = aws.compute_external_id("role-1", "account-1")
+        assert eid == f"Groundwork-{expected}"
+
+
 class TestBuildTrustPolicy:
-    def test_groups_only(self):
-        """Group access gates on aud only — AWS STS does not support :groups."""
-        with patch.object(settings, "oidc_client_id", OIDC_CLIENT_ID):
-            policy_str = aws._build_trust_policy(
-                oidc_provider_arn=OIDC_PROVIDER_ARN,
-                allowed_groups=["devs", "admins"],
-                allowed_users=[],
-            )
+    def test_single_statement_with_external_id(self):
+        """Trust policy has one statement with account root principal and External ID."""
+        with patch.object(settings, "aws_groundwork_account_id", "999888777666"):
+            policy_str = aws._build_trust_policy(external_id="Groundwork-abc123")
 
         policy = json.loads(policy_str)
         assert policy["Version"] == "2012-10-17"
         assert len(policy["Statement"]) == 1
         stmt = policy["Statement"][0]
-        assert stmt["Sid"] == "AllowGroupAccess"
-        assert stmt["Principal"]["Federated"] == OIDC_PROVIDER_ARN
-        assert stmt["Action"] == "sts:AssumeRoleWithWebIdentity"
-        assert stmt["Condition"]["StringEquals"]["idp.example.com:aud"] == OIDC_CLIENT_ID
-        # No :groups condition — AWS STS ignores it for custom OIDC providers.
-        # Group membership is enforced by Groundwork at the application layer.
-        assert "ForAnyValue:StringEquals" not in stmt["Condition"]
+        assert stmt["Sid"] == "AllowGroundworkAssume"
+        assert stmt["Principal"]["AWS"] == "arn:aws:iam::999888777666:root"
+        assert stmt["Action"] == "sts:AssumeRole"
+        assert stmt["Condition"]["StringEquals"]["sts:ExternalId"] == "Groundwork-abc123"
 
-    def test_users_only(self):
-        with patch.object(settings, "oidc_client_id", OIDC_CLIENT_ID):
-            policy_str = aws._build_trust_policy(
-                oidc_provider_arn=OIDC_PROVIDER_ARN,
-                allowed_groups=[],
-                allowed_users=["user-1", "user-2"],
-            )
+    def test_no_oidc_references(self):
+        """Trust policy must not reference Federated principal or AssumeRoleWithWebIdentity."""
+        with patch.object(settings, "aws_groundwork_account_id", "999888777666"):
+            policy_str = aws._build_trust_policy(external_id="Groundwork-abc123")
 
-        policy = json.loads(policy_str)
-        assert len(policy["Statement"]) == 1
-        stmt = policy["Statement"][0]
-        assert stmt["Sid"] == "AllowUserAccess"
-        assert stmt["Condition"]["StringEquals"]["idp.example.com:sub"] == ["user-1", "user-2"]
-
-    def test_groups_and_users(self):
-        with patch.object(settings, "oidc_client_id", OIDC_CLIENT_ID):
-            policy_str = aws._build_trust_policy(
-                oidc_provider_arn=OIDC_PROVIDER_ARN,
-                allowed_groups=["devs"],
-                allowed_users=["user-1"],
-            )
-
-        policy = json.loads(policy_str)
-        assert len(policy["Statement"]) == 2
-        sids = [s["Sid"] for s in policy["Statement"]]
-        assert "AllowGroupAccess" in sids
-        assert "AllowUserAccess" in sids
-
-    def test_empty_groups_and_users(self):
-        with patch.object(settings, "oidc_client_id", OIDC_CLIENT_ID):
-            policy_str = aws._build_trust_policy(
-                oidc_provider_arn=OIDC_PROVIDER_ARN,
-                allowed_groups=[],
-                allowed_users=[],
-            )
-
-        policy = json.loads(policy_str)
-        assert len(policy["Statement"]) == 0
+        assert "Federated" not in policy_str
+        assert "AssumeRoleWithWebIdentity" not in policy_str
 
 
 class TestAssumeGroundworkAdmin:

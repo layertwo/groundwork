@@ -27,6 +27,15 @@ class STSCredentials(TypedDict):
     expiration: datetime
 
 
+def compute_external_id(role_id: str, account_id: str) -> str:
+    """Compute a deterministic External ID for confusion-deputy protection.
+
+    Format: Groundwork-{first 16 hex chars of SHA-256(role_id + account_id)}.
+    """
+    digest = hashlib.sha256(f"{role_id}{account_id}".encode()).hexdigest()[:16]
+    return f"Groundwork-{digest}"
+
+
 def get_session() -> aioboto3.Session:
     """Return a reusable aioboto3 session."""
     global _session
@@ -277,67 +286,30 @@ async def assume_groundwork_admin(aws_account_id: str) -> aioboto3.Session:
     )
 
 
-def _build_trust_policy(
-    oidc_provider_arn: str,
-    allowed_groups: list[str],
-    allowed_users: list[str],
-) -> str:
-    """Build an IAM trust policy for OIDC federation.
+def _build_trust_policy(external_id: str) -> str:
+    """Build an IAM trust policy for AssumeRole from the Groundwork account.
 
-    AWS STS ``AssumeRoleWithWebIdentity`` only exposes ``aud`` and ``sub``
-    as condition keys for custom OIDC providers — arbitrary claims like
-    ``groups`` are **not** evaluated.  Group-based access control is
-    therefore enforced at the application layer (see
-    ``_load_role_for_assumption``) before the STS call.
-
-    The trust policy produced here:
-    - **Group access** — gates only on ``aud`` (any token issued by the
-      correct IdP for this client can assume the role; Groundwork checks
-      group membership before calling STS).
-    - **User access** — gates on both ``aud`` and ``sub`` (AWS can enforce
-      the user identity directly).
+    The trust policy allows the Groundwork AWS account root to assume
+    the role, gated by an External ID condition for confusion-deputy
+    protection.  User/group access control is enforced entirely at the
+    application layer before the STS call.
     """
-    # Extract issuer host from the OIDC provider ARN
-    # ARN format: arn:aws:iam::<account>:oidc-provider/<issuer_host>
-    issuer = oidc_provider_arn.split(":oidc-provider/", 1)[1]
-
-    statements: list[dict] = []
-
-    if allowed_groups:
-        # AWS STS does not support {issuer}:groups as a condition key for
-        # custom OIDC providers, so we only check the audience claim here.
-        # Group membership is enforced by Groundwork before the STS call.
-        statements.append(
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
             {
-                "Sid": "AllowGroupAccess",
+                "Sid": "AllowGroundworkAssume",
                 "Effect": "Allow",
-                "Principal": {"Federated": oidc_provider_arn},
-                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Principal": {"AWS": f"arn:aws:iam::{settings.aws_groundwork_account_id}:root"},
+                "Action": "sts:AssumeRole",
                 "Condition": {
                     "StringEquals": {
-                        f"{issuer}:aud": settings.oidc_client_id,
+                        "sts:ExternalId": external_id,
                     },
                 },
             }
-        )
-
-    if allowed_users:
-        statements.append(
-            {
-                "Sid": "AllowUserAccess",
-                "Effect": "Allow",
-                "Principal": {"Federated": oidc_provider_arn},
-                "Action": "sts:AssumeRoleWithWebIdentity",
-                "Condition": {
-                    "StringEquals": {
-                        f"{issuer}:aud": settings.oidc_client_id,
-                        f"{issuer}:sub": allowed_users,
-                    },
-                },
-            }
-        )
-
-    policy = {"Version": "2012-10-17", "Statement": statements}
+        ],
+    }
     return json.dumps(policy)
 
 
