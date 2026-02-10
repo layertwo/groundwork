@@ -128,9 +128,10 @@ async def create_role(
         user_agent=request.headers.get("user-agent"),
     )
 
+    await db.commit()
     await db.refresh(role)
 
-    # Launch job as background task
+    # Launch job as background task (after commit so the row is visible)
     task = asyncio.create_task(execute_job(job.id))
     request.app.state.background_tasks.add(task)
     task.add_done_callback(request.app.state.background_tasks.discard)
@@ -215,11 +216,6 @@ async def update_role(
             )
 
         db.add(job)
-        await db.flush()
-
-        task = asyncio.create_task(execute_job(job.id))
-        request.app.state.background_tasks.add(task)
-        task.add_done_callback(request.app.state.background_tasks.discard)
 
     await log_event(
         db,
@@ -232,8 +228,15 @@ async def update_role(
         user_agent=request.headers.get("user-agent"),
     )
 
-    await db.flush()
+    await db.commit()
     await db.refresh(role)
+
+    # Launch job after commit so the row is visible to the job's session
+    if iam_changes:
+        task = asyncio.create_task(execute_job(job.id))
+        request.app.state.background_tasks.add(task)
+        task.add_done_callback(request.app.state.background_tasks.discard)
+
     return role
 
 
@@ -287,6 +290,9 @@ async def delete_role(
         user_agent=request.headers.get("user-agent"),
     )
 
+    await db.commit()
+
+    # Launch job after commit so the row is visible to the job's session
     task = asyncio.create_task(execute_job(job.id))
     request.app.state.background_tasks.add(task)
     task.add_done_callback(request.app.state.background_tasks.discard)
