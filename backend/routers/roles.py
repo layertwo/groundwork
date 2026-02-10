@@ -81,13 +81,6 @@ async def create_role(
     if existing.scalar_one_or_none() is not None:
         raise ConflictError("A role with this name already exists on this account")
 
-    # At least one of allowed_groups or allowed_users must be specified
-    if not body.allowed_groups and not body.allowed_users:
-        raise GroundworkError(
-            "At least one of allowed_groups or allowed_users is required",
-            status_code=400,
-        )
-
     # If template_id provided, use its managed_policy_arns
     managed_policy_arns = body.managed_policy_arns
     if body.template_id is not None:

@@ -178,17 +178,19 @@ class TestCreateRole:
 
         assert response.status_code == 400
 
-    async def test_create_role_empty_groups_and_users_returns_400(self, client, db_session):
+    async def test_create_role_empty_groups_and_users_allowed(self, client, db_session):
+        """Roles can be created without access restrictions (configured later)."""
         admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
         account = await _create_active_account(db_session, admin)
 
-        response = await client.post(
-            f"/api/accounts/{account.id}/roles",
-            json={"role_name": "NoAccess", "allowed_groups": [], "allowed_users": []},
-            cookies=_cookies(session_id),
-        )
+        with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
+            response = await client.post(
+                f"/api/accounts/{account.id}/roles",
+                json={"role_name": "NoAccess", "allowed_groups": [], "allowed_users": []},
+                cookies=_cookies(session_id),
+            )
 
-        assert response.status_code == 400
+        assert response.status_code == 201
 
     async def test_create_role_job_created(self, client, db_session):
         admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
