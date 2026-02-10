@@ -2,7 +2,7 @@ import asyncio
 import re
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -328,6 +328,20 @@ async def list_roles(
     return visible
 
 
+def _check_role_access(role: Role, user: User) -> None:
+    """Verify user has access to assume the role and that role/account are active."""
+    if role.status != "active":
+        raise GroundworkError("Role is not available for assumption", status_code=400)
+
+    user_groups = set(user.groups or [])
+    role_groups = set(role.allowed_groups or [])
+    if not (user_groups & role_groups) and user.sub not in (role.allowed_users or []):
+        raise ForbiddenError("You do not have access to assume this role")
+
+    if role.account.status != "active":
+        raise GroundworkError("Account is not active", status_code=400)
+
+
 async def _load_role_for_assumption(
     role_id: UUID,
     user: User,
@@ -340,20 +354,7 @@ async def _load_role_for_assumption(
     role = result.scalar_one_or_none()
     if role is None:
         raise NotFoundError("Role not found")
-
-    if role.status != "active":
-        raise GroundworkError("Role is not available for assumption", status_code=400)
-
-    # Access check: user's groups intersect allowed_groups OR sub in allowed_users
-    user_groups = set(user.groups or [])
-    role_groups = set(role.allowed_groups or [])
-    if not (user_groups & role_groups) and user.sub not in (role.allowed_users or []):
-        raise ForbiddenError("You do not have access to assume this role")
-
-    # Account must be active
-    if role.account.status != "active":
-        raise GroundworkError("Account is not active", status_code=400)
-
+    _check_role_access(role, user)
     return role
 
 
@@ -372,18 +373,7 @@ async def _load_role_for_federation(
     role = result.scalar_one_or_none()
     if role is None:
         raise NotFoundError("Role not found")
-
-    if role.status != "active":
-        raise GroundworkError("Role is not available for assumption", status_code=400)
-
-    user_groups = set(user.groups or [])
-    role_groups = set(role.allowed_groups or [])
-    if not (user_groups & role_groups) and user.sub not in (role.allowed_users or []):
-        raise ForbiddenError("You do not have access to assume this role")
-
-    if role.account.status != "active":
-        raise GroundworkError("Account is not active", status_code=400)
-
+    _check_role_access(role, user)
     return role
 
 
@@ -430,7 +420,8 @@ async def assume_role(
 @router.get("/api/federate")
 async def federate(
     account_id: UUID,
-    role: str,
+    role: str = Query(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_+=,.@\-]+$"),
+    *,
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
