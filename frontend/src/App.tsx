@@ -11,6 +11,7 @@ import AccountCreate from '@/pages/AccountCreate'
 import RoleCreate from '@/pages/RoleCreate'
 import JobList from '@/pages/JobList'
 import RoleTemplates from '@/pages/RoleTemplates'
+import FederatePage from '@/pages/FederatePage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <RoleTemplates />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/federate"
+                element={
+                  <ProtectedRoute>
+                    <FederatePage />
                   </ProtectedRoute>
                 }
               />
