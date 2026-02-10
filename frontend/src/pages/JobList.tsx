@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -121,6 +122,7 @@ export default function JobList() {
       ) : filteredJobs.length === 0 ? (
         <div className="text-muted-foreground">No jobs match your search.</div>
       ) : (
+        <Card>
         <Table>
           <TableHeader>
             <TableRow>
@@ -147,6 +149,7 @@ export default function JobList() {
             ))}
           </TableBody>
         </Table>
+        </Card>
       )}
     </div>
   )

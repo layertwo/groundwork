@@ -23,6 +23,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/context/AuthContext'
 import { getAccount } from '@/api/accounts'
 import {
@@ -70,6 +86,7 @@ export default function AccountDetail() {
   const [credentialsRoleName, setCredentialsRoleName] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loading, setLoading] = useState<string | null>(null)
+  const [deleteRoleId, setDeleteRoleId] = useState<string | null>(null)
 
   // Edit dialog state
   const [editRole, setEditRole] = useState<RoleResponse | null>(null)
@@ -162,15 +179,17 @@ export default function AccountDetail() {
     }
   }
 
-  const handleDelete = async (roleId: string) => {
-    if (!id || !confirm('Delete this role? This will remove the IAM role from AWS.')) return
+  const handleDelete = async () => {
+    if (!id || !deleteRoleId) return
     try {
-      await deleteRole(id, roleId)
+      await deleteRole(id, deleteRoleId)
       refetchRoles()
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       toast.success('Role deletion started')
     } catch (err) {
       toast.error(err instanceof ApiError ? err.detail : 'Failed to delete role')
+    } finally {
+      setDeleteRoleId(null)
     }
   }
 
@@ -198,7 +217,17 @@ export default function AccountDetail() {
   }
 
   if (accountLoading) {
-    return <div className="text-muted-foreground">Loading...</div>
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-8 w-32" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-48 w-full" />
+        </div>
+      </div>
+    )
   }
 
   if (!account) {
@@ -335,18 +364,20 @@ export default function AccountDetail() {
                   {role.error_message && (
                     <p className="text-xs text-destructive">{role.error_message}</p>
                   )}
-                  <p
-                    className="text-xs text-muted-foreground cursor-default"
-                    title={
-                      role.last_used_at
-                        ? new Date(role.last_used_at).toLocaleString()
-                        : undefined
-                    }
-                  >
-                    {role.last_used_at
-                      ? `Last used ${relativeTime(role.last_used_at)}`
-                      : 'Never used'}
-                  </p>
+                  {role.last_used_at ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p className="text-xs text-muted-foreground cursor-default">
+                          Last used {relativeTime(role.last_used_at)}
+                        </p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{new Date(role.last_used_at).toLocaleString()}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Never used</p>
+                  )}
                   <CardAction>
                     <div className="flex gap-1">
                       <Button
@@ -434,7 +465,7 @@ export default function AccountDetail() {
                         variant="ghost"
                         size="xs"
                         className="text-destructive"
-                        onClick={() => handleDelete(role.id)}
+                        onClick={() => setDeleteRoleId(role.id)}
                         disabled={role.status === 'updating'}
                       >
                         Delete
@@ -466,6 +497,21 @@ export default function AccountDetail() {
           queryClient.invalidateQueries({ queryKey: ['account', id] })
         }}
       />
+
+      <AlertDialog open={!!deleteRoleId} onOpenChange={(open) => !open && setDeleteRoleId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete role?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the IAM role from AWS. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
