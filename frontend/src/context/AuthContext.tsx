@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { getAuthStatus, logout as apiLogout, type UserInfo } from '../api/auth'
+import { useEventStream } from '../hooks/useEventStream'
 
 interface AuthContextValue {
   user: UserInfo | null
@@ -40,6 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false)
       })
   }, [])
+
+  useEventStream(user !== null)
 
   const logout = useCallback(async () => {
     try {

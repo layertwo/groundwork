@@ -51,13 +51,6 @@ export default function JobList() {
   const { data: jobs, isLoading } = useQuery({
     queryKey: ['jobs', filters],
     queryFn: () => listJobs(Object.keys(filters).length > 0 ? filters : undefined),
-    refetchInterval: (query) => {
-      const data = query.state.data
-      if (data?.some((j) => j.status === 'pending' || j.status === 'in_progress')) {
-        return 5000
-      }
-      return false
-    },
   })
 
   const { data: accounts } = useQuery({

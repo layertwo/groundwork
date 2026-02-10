@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -22,6 +22,7 @@ type Mode = 'template' | 'custom'
 export default function RoleCreate() {
   const { id: accountId } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [mode, setMode] = useState<Mode>('custom')
@@ -91,6 +92,7 @@ export default function RoleCreate() {
         console_session_duration: consoleSessionMinutes * 60,
         description: description || null,
       })
+      await queryClient.invalidateQueries({ queryKey: ['roles'] })
       navigate(`/accounts/${accountId}`)
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to create role')

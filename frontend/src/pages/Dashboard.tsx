@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Folder, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -63,10 +63,14 @@ export default function Dashboard() {
   })
 
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const syncMutation = useMutation({
     mutationFn: () => createJob({ job_type: 'sync_accounts' }),
-    onSuccess: () => navigate('/jobs'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      navigate('/jobs')
+    },
   })
 
   const rolesByAccount = useMemo(() => {
