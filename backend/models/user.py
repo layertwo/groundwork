@@ -15,6 +15,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     sub: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    preferred_username: Mapped[str] = mapped_column(
+        String(255), nullable=False, server_default=""
+    )
     groups: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, server_default="{}")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     last_login_at: Mapped[Optional[datetime]] = mapped_column(
