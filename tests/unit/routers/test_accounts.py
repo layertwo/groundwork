@@ -242,3 +242,208 @@ class TestUpdateAccount:
         )
 
         assert response.status_code == 403
+
+
+class TestUpdateAccountAlias:
+    async def test_set_alias(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="Alias Test",
+            account_email=f"alias-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="active",
+            aws_account_id="111111111111",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        with (
+            patch("backend.routers.accounts.aws.set_account_alias", new_callable=AsyncMock),
+            patch("backend.routers.accounts.account_metadata.update_cached_alias"),
+        ):
+            response = await client.patch(
+                f"/api/accounts/{account.id}",
+                json={"alias": "my-alias"},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+
+    async def test_set_alias_requires_active_account(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="Pending Account",
+            account_email=f"pending-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="pending",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        response = await client.patch(
+            f"/api/accounts/{account.id}",
+            json={"alias": "my-alias"},
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 400
+
+    async def test_delete_alias_with_empty_string(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="Del Alias Test",
+            account_email=f"del-alias-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="active",
+            aws_account_id="222222222222",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        with (
+            patch(
+                "backend.routers.accounts.account_metadata.get_account_metadata",
+                new_callable=AsyncMock,
+                return_value={"alias": "old-alias", "color": None, "fetched_at": None},
+            ),
+            patch("backend.routers.accounts.aws.delete_account_alias", new_callable=AsyncMock),
+            patch("backend.routers.accounts.account_metadata.update_cached_alias"),
+        ):
+            response = await client.patch(
+                f"/api/accounts/{account.id}",
+                json={"alias": ""},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+
+
+class TestUpdateAccountColor:
+    async def test_set_color(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="Color Test",
+            account_email=f"color-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="active",
+            aws_account_id="333333333333",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        with (
+            patch("backend.routers.accounts.aws.set_account_color", new_callable=AsyncMock),
+            patch("backend.routers.accounts.account_metadata.update_cached_color"),
+        ):
+            response = await client.patch(
+                f"/api/accounts/{account.id}",
+                json={"color": "red"},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+
+    async def test_delete_color_with_none(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="Del Color Test",
+            account_email=f"del-color-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="active",
+            aws_account_id="444444444444",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        with (
+            patch("backend.routers.accounts.aws.delete_account_color", new_callable=AsyncMock),
+            patch("backend.routers.accounts.account_metadata.update_cached_color"),
+        ):
+            response = await client.patch(
+                f"/api/accounts/{account.id}",
+                json={"color": "none"},
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+
+
+class TestAccountResponseIncludesMetadata:
+    async def test_get_account_includes_alias_and_color(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="Meta Test",
+            account_email=f"meta-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="active",
+            aws_account_id="555555555555",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        with patch(
+            "backend.routers.accounts.account_metadata.get_account_metadata",
+            new_callable=AsyncMock,
+            return_value={"alias": "prod", "color": "red", "fetched_at": None},
+        ):
+            response = await client.get(
+                f"/api/accounts/{account.id}",
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["alias"] == "prod"
+        assert data["color"] == "red"
+
+    async def test_list_accounts_includes_alias_and_color(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="List Meta Test",
+            account_email=f"list-meta-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="active",
+            aws_account_id="666666666666",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        with patch(
+            "backend.routers.accounts.account_metadata.get_all_account_metadata",
+            new_callable=AsyncMock,
+            return_value={
+                "666666666666": {"alias": "staging", "color": "yellow", "fetched_at": None}
+            },
+        ):
+            response = await client.get(
+                "/api/accounts",
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        matched = [a for a in data if a["aws_account_id"] == "666666666666"]
+        assert len(matched) == 1
+        assert matched[0]["alias"] == "staging"
+        assert matched[0]["color"] == "yellow"
