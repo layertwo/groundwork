@@ -316,19 +316,19 @@ def _build_trust_policy(external_id: str) -> str:
 async def create_iam_role(
     aws_account_id: str,
     role_name: str,
-    oidc_provider_arn: str,
-    allowed_groups: list[str],
-    allowed_users: list[str],
+    role_id: str,
+    account_id: str,
     managed_policy_arns: list[str],
     inline_policy: dict | None,
     max_duration: int,
 ) -> str:
-    """Create an IAM role in the target account with OIDC trust policy.
+    """Create an IAM role in the target account with Groundwork trust policy.
 
     Returns the role ARN.
     """
     target_session = await assume_groundwork_admin(aws_account_id)
-    trust_policy = _build_trust_policy(oidc_provider_arn, allowed_groups, allowed_users)
+    external_id = compute_external_id(role_id, account_id)
+    trust_policy = _build_trust_policy(external_id)
 
     async with target_session.client("iam") as iam:
         resp = await iam.create_role(
@@ -355,36 +355,17 @@ async def create_iam_role(
 async def update_iam_role(
     aws_account_id: str,
     role_name: str,
-    oidc_provider_arn: str,
     changes: dict,
 ) -> None:
     """Update an IAM role in the target account.
 
     ``changes`` is a dict of field names to new values. Only fields present
-    in the dict are updated. When updating trust policy fields, the caller
-    must include both ``allowed_groups`` and ``allowed_users`` (with their
-    full current values) to avoid losing existing access.
+    in the dict are updated. Trust policy is not updated since access control
+    is enforced at the application layer and the External ID is static.
     """
     target_session = await assume_groundwork_admin(aws_account_id)
 
     async with target_session.client("iam") as iam:
-        # Trust policy update if groups or users changed
-        if "allowed_groups" in changes or "allowed_users" in changes:
-            if "allowed_groups" not in changes or "allowed_users" not in changes:
-                raise ValueError(
-                    "Both allowed_groups and allowed_users must be provided "
-                    "when updating trust policy"
-                )
-            trust_policy = _build_trust_policy(
-                oidc_provider_arn,
-                changes["allowed_groups"],
-                changes["allowed_users"],
-            )
-            await iam.update_assume_role_policy(
-                RoleName=role_name,
-                PolicyDocument=trust_policy,
-            )
-
         # Max session duration (derived from the larger of api/console duration)
         if "api_session_duration" in changes or "console_session_duration" in changes:
             max_dur = max(
@@ -395,12 +376,10 @@ async def update_iam_role(
 
         # Managed policies
         if "managed_policy_arns" in changes:
-            # Detach all existing managed policies
             paginator = iam.get_paginator("list_attached_role_policies")
             async for page in paginator.paginate(RoleName=role_name):
                 for policy in page.get("AttachedPolicies", []):
                     await iam.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
-            # Attach new ones
             for arn in changes["managed_policy_arns"]:
                 await iam.attach_role_policy(RoleName=role_name, PolicyArn=arn)
 

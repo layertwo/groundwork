@@ -12,8 +12,6 @@ from backend.config import settings
 from backend.services import aws
 from tests.fixtures.aws import _stubbed_session, create_stubbed_client
 
-OIDC_PROVIDER_ARN = "arn:aws:iam::123456789012:oidc-provider/idp.example.com"
-OIDC_CLIENT_ID = "groundwork-client"
 AWS_ACCOUNT_ID = "123456789012"
 ROLE_NAME = "TestRole"
 
@@ -126,7 +124,7 @@ class TestCreateIamRole:
                 "Role": {
                     "Path": "/",
                     "RoleName": ROLE_NAME,
-                    "RoleId": "AROAIOSFODNN7EXAMPLE",
+                    "RoleId": "AROA1234567890EXAMPL",
                     "Arn": f"arn:aws:iam::{AWS_ACCOUNT_ID}:role/{ROLE_NAME}",
                     "CreateDate": datetime(2025, 1, 1),
                     "AssumeRolePolicyDocument": "{}",
@@ -141,16 +139,15 @@ class TestCreateIamRole:
 
         with (
             patch.object(aws, "assume_groundwork_admin", new_callable=AsyncMock) as mock_assume,
-            patch.object(settings, "oidc_client_id", OIDC_CLIENT_ID),
+            patch.object(settings, "aws_groundwork_account_id", "999888777666"),
         ):
             mock_assume.return_value = target_session
 
             role_arn = await aws.create_iam_role(
                 aws_account_id=AWS_ACCOUNT_ID,
                 role_name=ROLE_NAME,
-                oidc_provider_arn=OIDC_PROVIDER_ARN,
-                allowed_groups=["devs"],
-                allowed_users=[],
+                role_id="test-role-uuid",
+                account_id="test-account-uuid",
                 managed_policy_arns=["arn:aws:iam::aws:policy/ReadOnlyAccess"],
                 inline_policy={"Version": "2012-10-17", "Statement": []},
                 max_duration=3600,
