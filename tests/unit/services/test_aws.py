@@ -10,9 +10,6 @@ from backend.config import settings
 from backend.services import aws
 from tests.fixtures.aws import _stubbed_session, create_stubbed_client
 
-OIDC_ISSUER = "https://idp.example.com"
-OIDC_CLIENT_ID = "groundwork-client"
-
 
 class TestGetManagementSession:
     async def test_assumes_role_with_configured_arn(self):
@@ -222,17 +219,14 @@ class TestBootstrapAccountStackSet:
             patch.object(aws, "ensure_bootstrap_stackset", new_callable=AsyncMock),
             patch.object(aws, "get_stack_instance_status", side_effect=mock_get_status),
             patch("backend.services.aws.asyncio.sleep", new_callable=AsyncMock),
-            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
             patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
         ):
             result = await aws.bootstrap_account("123456789012")
 
-        assert result["oidc_provider_arn"] == (
-            "arn:aws:iam::123456789012:oidc-provider/idp.example.com"
-        )
         assert result["admin_role_arn"] == (
             "arn:aws:iam::123456789012:role/GroundworkAdmin-DO-NOT-DELETE"
         )
+        assert "oidc_provider_arn" not in result
         assert call_count == 3
 
     async def test_bootstrap_triggers_deploy_when_not_found(self):
@@ -251,14 +245,14 @@ class TestBootstrapAccountStackSet:
             patch.object(aws, "get_stack_instance_status", side_effect=mock_get_status),
             patch.object(aws, "deploy_to_account", new_callable=AsyncMock) as mock_deploy,
             patch("backend.services.aws.asyncio.sleep", new_callable=AsyncMock),
-            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
             patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
         ):
             mock_deploy.return_value = "op-123"
             result = await aws.bootstrap_account("123456789012", ou_id="ou-abc1")
 
         mock_deploy.assert_called_once_with("123456789012", "ou-abc1")
-        assert result["oidc_provider_arn"] is not None
+        assert result["admin_role_arn"] is not None
+        assert "oidc_provider_arn" not in result
 
     async def test_bootstrap_times_out(self):
         """Raises RuntimeError if stack never deploys within timeout."""
@@ -270,7 +264,6 @@ class TestBootstrapAccountStackSet:
             patch.object(aws, "ensure_bootstrap_stackset", new_callable=AsyncMock),
             patch.object(aws, "get_stack_instance_status", side_effect=mock_get_status),
             patch("backend.services.aws.asyncio.sleep", new_callable=AsyncMock),
-            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
             patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
         ):
             with pytest.raises(RuntimeError, match="timed out"):
@@ -286,7 +279,6 @@ class TestBootstrapAccountStackSet:
             patch.object(aws, "ensure_bootstrap_stackset", new_callable=AsyncMock),
             patch.object(aws, "get_stack_instance_status", side_effect=mock_get_status),
             patch("backend.services.aws.asyncio.sleep", new_callable=AsyncMock),
-            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
             patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
         ):
             with pytest.raises(RuntimeError, match="failed"):
@@ -296,36 +288,24 @@ class TestBootstrapAccountStackSet:
 class TestBuildBootstrapTemplate:
     def test_template_has_required_resources(self):
         body = aws._build_bootstrap_template(
-            oidc_issuer_url="https://idp.example.com",
-            oidc_client_id="gw-client",
-            oidc_thumbprint="a" * 40,
             groundwork_account_id="222233334444",
             admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
         )
         parsed = json.loads(body)
         assert parsed["AWSTemplateFormatVersion"] == "2010-09-09"
-        assert "OidcProvider" in parsed["Resources"]
         assert "AdminRole" in parsed["Resources"]
 
-    def test_oidc_provider_config(self):
+    def test_no_oidc_provider_in_template(self):
         body = aws._build_bootstrap_template(
-            oidc_issuer_url="https://idp.example.com",
-            oidc_client_id="gw-client",
-            oidc_thumbprint="a" * 40,
             groundwork_account_id="222233334444",
             admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
         )
         parsed = json.loads(body)
-        oidc = parsed["Resources"]["OidcProvider"]["Properties"]
-        assert oidc["Url"] == "https://idp.example.com"
-        assert oidc["ClientIdList"] == ["gw-client"]
-        assert oidc["ThumbprintList"] == ["a" * 40]
+        assert "OidcProvider" not in parsed["Resources"]
+        assert "OidcProviderArn" not in parsed.get("Outputs", {})
 
     def test_admin_role_trusts_groundwork_account(self):
         body = aws._build_bootstrap_template(
-            oidc_issuer_url="https://idp.example.com",
-            oidc_client_id="gw-client",
-            oidc_thumbprint="a" * 40,
             groundwork_account_id="222233334444",
             admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
         )
@@ -340,14 +320,10 @@ class TestBuildBootstrapTemplate:
 
     def test_template_has_outputs(self):
         body = aws._build_bootstrap_template(
-            oidc_issuer_url="https://idp.example.com",
-            oidc_client_id="gw-client",
-            oidc_thumbprint="a" * 40,
             groundwork_account_id="222233334444",
             admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
         )
         parsed = json.loads(body)
-        assert "OidcProviderArn" in parsed["Outputs"]
         assert "AdminRoleArn" in parsed["Outputs"]
 
 
@@ -355,9 +331,6 @@ class TestEnsureBootstrapStackset:
     async def test_creates_stackset_when_not_exists(self):
         """When the StackSet doesn't exist, create it and deploy to org root."""
         template_body = aws._build_bootstrap_template(
-            oidc_issuer_url="https://idp.example.com",
-            oidc_client_id="gw-client",
-            oidc_thumbprint="a" * 40,
             groundwork_account_id="222233334444",
             admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
         )
@@ -379,7 +352,7 @@ class TestEnsureBootstrapStackset:
             {"StackSetId": "ss-123"},
             expected_params={
                 "StackSetName": "groundwork-bootstrap",
-                "Description": "Groundwork bootstrap - OIDC provider and admin role",
+                "Description": "Groundwork bootstrap - admin role for member accounts",
                 "TemplateBody": template_body,
                 "PermissionModel": "SERVICE_MANAGED",
                 "AutoDeployment": {"Enabled": True, "RetainStacksOnAccountRemoval": False},
@@ -403,16 +376,11 @@ class TestEnsureBootstrapStackset:
 
         with (
             patch.object(aws, "get_session", return_value=mock_gw_session),
-            patch.object(aws, "get_oidc_thumbprint", new_callable=AsyncMock) as mock_thumb,
-            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
-            patch.object(settings, "oidc_client_id", "gw-client"),
             patch.object(settings, "aws_groundwork_account_id", "222233334444"),
             patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
             patch.object(settings, "aws_region", "us-east-1"),
             patch.object(settings, "aws_org_root_id", "r-abc1"),
         ):
-            mock_thumb.return_value = "a" * 40
-
             await aws.ensure_bootstrap_stackset()
 
         cfn_stubber.assert_no_pending_responses()
@@ -420,9 +388,6 @@ class TestEnsureBootstrapStackset:
     async def test_updates_stackset_when_exists(self):
         """When the StackSet already exists, update it with the latest template."""
         template_body = aws._build_bootstrap_template(
-            oidc_issuer_url="https://idp.example.com",
-            oidc_client_id="gw-client",
-            oidc_thumbprint="a" * 40,
             groundwork_account_id="222233334444",
             admin_role_name="GroundworkAdmin-DO-NOT-DELETE",
         )
@@ -447,7 +412,7 @@ class TestEnsureBootstrapStackset:
             {"OperationId": "op-update-1"},
             expected_params={
                 "StackSetName": "groundwork-bootstrap",
-                "Description": "Groundwork bootstrap - OIDC provider and admin role",
+                "Description": "Groundwork bootstrap - admin role for member accounts",
                 "TemplateBody": template_body,
                 "Capabilities": ["CAPABILITY_NAMED_IAM"],
                 "CallAs": "DELEGATED_ADMIN",
@@ -459,14 +424,9 @@ class TestEnsureBootstrapStackset:
 
         with (
             patch.object(aws, "get_session", return_value=mock_gw_session),
-            patch.object(aws, "get_oidc_thumbprint", new_callable=AsyncMock) as mock_thumb,
-            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
-            patch.object(settings, "oidc_client_id", "gw-client"),
             patch.object(settings, "aws_groundwork_account_id", "222233334444"),
             patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
         ):
-            mock_thumb.return_value = "a" * 40
-
             await aws.ensure_bootstrap_stackset()
 
         cfn_stubber.assert_no_pending_responses()
@@ -499,14 +459,9 @@ class TestEnsureBootstrapStackset:
 
         with (
             patch.object(aws, "get_session", return_value=mock_gw_session),
-            patch.object(aws, "get_oidc_thumbprint", new_callable=AsyncMock) as mock_thumb,
-            patch.object(settings, "oidc_issuer_url", "https://idp.example.com"),
-            patch.object(settings, "oidc_client_id", "gw-client"),
             patch.object(settings, "aws_groundwork_account_id", "222233334444"),
             patch.object(settings, "admin_role_name", "GroundworkAdmin-DO-NOT-DELETE"),
         ):
-            mock_thumb.return_value = "a" * 40
-
             # Should not raise
             await aws.ensure_bootstrap_stackset()
 

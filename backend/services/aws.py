@@ -4,10 +4,9 @@ import asyncio
 import hashlib
 import json
 import logging
-import ssl
 from datetime import datetime
 from typing import TypedDict
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 import aioboto3
 import aiohttp
@@ -213,51 +212,16 @@ async def bootstrap_account(aws_account_id: str, ou_id: str | None = None) -> di
     else:
         raise RuntimeError(f"Bootstrap stack deployment timed out for account {aws_account_id}")
 
-    # Compute ARNs deterministically from known inputs
-    issuer_host = urlparse(settings.oidc_issuer_url).hostname
-    oidc_provider_arn = f"arn:aws:iam::{aws_account_id}:oidc-provider/{issuer_host}"
     admin_role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
 
     logger.info(
-        "Bootstrap complete for account %s: oidc=%s role=%s",
+        "Bootstrap complete for account %s: role=%s",
         aws_account_id,
-        oidc_provider_arn,
         admin_role_arn,
     )
     return {
-        "oidc_provider_arn": oidc_provider_arn,
         "admin_role_arn": admin_role_arn,
     }
-
-
-async def get_oidc_thumbprint(issuer_url: str) -> str:
-    """Fetch the TLS certificate thumbprint for an OIDC issuer.
-
-    AWS requires this for create_open_id_connect_provider.
-    """
-    parsed = urlparse(issuer_url)
-    if parsed.scheme != "https":
-        raise ValueError("OIDC issuer must use HTTPS")
-    if not parsed.hostname:
-        raise ValueError("OIDC issuer URL has no hostname")
-    hostname = parsed.hostname
-    port = parsed.port or 443
-
-    ctx = ssl.create_default_context()
-    der_cert = await _fetch_server_cert(hostname, port, ctx)
-
-    thumbprint = hashlib.sha1(der_cert).hexdigest()  # noqa: S324
-    return thumbprint
-
-
-async def _fetch_server_cert(hostname: str, port: int, ctx: ssl.SSLContext) -> bytes:
-    """Connect to host and return DER-encoded server certificate."""
-    reader, writer = await asyncio.open_connection(hostname, port, ssl=ctx)
-    ssl_object = writer.transport.get_extra_info("ssl_object")
-    der_cert = ssl_object.getpeercert(binary_form=True)
-    writer.close()
-    await writer.wait_closed()
-    return der_cert
 
 
 # ---------------------------------------------------------------------------
@@ -606,17 +570,11 @@ async def ensure_bootstrap_stackset() -> None:
 
     Uses service-managed permissions with auto-deploy enabled, targeting
     the entire organization. On every call the StackSet template is
-    re-applied so that configuration changes (OIDC settings, role name,
-    etc.) are picked up on restart.
+    re-applied so that configuration changes are picked up on restart.
     """
     session = get_session()
 
-    # Compute thumbprint and generate template (needed for both create and update)
-    thumbprint = await get_oidc_thumbprint(settings.oidc_issuer_url)
     template_body = _build_bootstrap_template(
-        oidc_issuer_url=settings.oidc_issuer_url,
-        oidc_client_id=settings.oidc_client_id,
-        oidc_thumbprint=thumbprint,
         groundwork_account_id=settings.aws_groundwork_account_id,
         admin_role_name=settings.admin_role_name,
     )
@@ -638,7 +596,7 @@ async def ensure_bootstrap_stackset() -> None:
             try:
                 await cfn.update_stack_set(
                     StackSetName=BOOTSTRAP_STACKSET_NAME,
-                    Description="Groundwork bootstrap - OIDC provider and admin role",
+                    Description="Groundwork bootstrap - admin role for member accounts",
                     TemplateBody=template_body,
                     Capabilities=["CAPABILITY_NAMED_IAM"],
                     CallAs="DELEGATED_ADMIN",
@@ -652,7 +610,7 @@ async def ensure_bootstrap_stackset() -> None:
         else:
             await cfn.create_stack_set(
                 StackSetName=BOOTSTRAP_STACKSET_NAME,
-                Description="Groundwork bootstrap - OIDC provider and admin role",
+                Description="Groundwork bootstrap - admin role for member accounts",
                 TemplateBody=template_body,
                 PermissionModel="SERVICE_MANAGED",
                 AutoDeployment={"Enabled": True, "RetainStacksOnAccountRemoval": False},
@@ -676,33 +634,21 @@ async def ensure_bootstrap_stackset() -> None:
 
 
 def _build_bootstrap_template(
-    oidc_issuer_url: str,
-    oidc_client_id: str,
-    oidc_thumbprint: str,
     groundwork_account_id: str,
     admin_role_name: str = "GroundworkAdmin-DO-NOT-DELETE",
 ) -> str:
     """Build a CloudFormation template for bootstrapping member accounts.
 
-    Generates a template that creates:
-    - An OIDC identity provider pointing at the configured issuer
-    - An admin management role trusted by the Groundwork service account
+    Generates a template that creates an admin management role trusted
+    by the Groundwork service account.
 
     Returns a JSON string suitable for passing as ``TemplateBody``
     to CloudFormation ``CreateStackSet``.
     """
     template: dict = {
         "AWSTemplateFormatVersion": "2010-09-09",
-        "Description": "Groundwork bootstrap - OIDC provider and admin role for member accounts",
+        "Description": "Groundwork bootstrap - admin role for member accounts",
         "Resources": {
-            "OidcProvider": {
-                "Type": "AWS::IAM::OIDCProvider",
-                "Properties": {
-                    "Url": oidc_issuer_url,
-                    "ClientIdList": [oidc_client_id],
-                    "ThumbprintList": [oidc_thumbprint],
-                },
-            },
             "AdminRole": {
                 "Type": "AWS::IAM::Role",
                 "Properties": {
@@ -726,10 +672,6 @@ def _build_bootstrap_template(
             },
         },
         "Outputs": {
-            "OidcProviderArn": {
-                "Description": "ARN of the OIDC identity provider",
-                "Value": {"Ref": "OidcProvider"},
-            },
             "AdminRoleArn": {
                 "Description": "ARN of the Groundwork admin role",
                 "Value": {"Fn::GetAtt": ["AdminRole", "Arn"]},
