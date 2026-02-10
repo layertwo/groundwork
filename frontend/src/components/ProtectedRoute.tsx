@@ -1,10 +1,9 @@
-import { useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const REDIRECT_KEY = 'gw:redirect_after_login'
 
-export function saveRedirectUrl() {
+function saveRedirectUrl() {
   const path = window.location.pathname + window.location.search
   if (path && path !== '/') {
     sessionStorage.setItem(REDIRECT_KEY, path)
@@ -27,17 +26,12 @@ export default function ProtectedRoute({
 }) {
   const { isAuthenticated, isLoading } = useAuth()
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      saveRedirectUrl()
-    }
-  }, [isLoading, isAuthenticated])
-
   if (isLoading) {
     return <div className="loading">Loading...</div>
   }
 
   if (!isAuthenticated) {
+    saveRedirectUrl()
     return <Navigate to="/" replace />
   }
 
