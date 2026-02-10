@@ -45,6 +45,17 @@ function statusVariant(status: string) {
   }
 }
 
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
+}
+
 export default function AccountDetail() {
   const { id } = useParams<{ id: string }>()
   const { isAdmin } = useAuth()
@@ -320,6 +331,11 @@ export default function AccountDetail() {
                   {role.error_message && (
                     <p className="text-xs text-destructive">{role.error_message}</p>
                   )}
+                  <p className="text-xs text-muted-foreground">
+                    {role.last_used_at
+                      ? `Last used ${relativeTime(role.last_used_at)}`
+                      : 'Never used'}
+                  </p>
                   <CardAction>
                     <div className="flex gap-1">
                       <Button
