@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import { toast } from 'sonner'
+import { Pencil, Check, X } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,9 +39,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/context/AuthContext'
-import { getAccount } from '@/api/accounts'
+import { getAccount, updateAccount } from '@/api/accounts'
 import {
   listRoles,
   federate,
@@ -49,6 +51,7 @@ import {
   getRoleTemplates,
 } from '@/api/roles'
 import { ApiError } from '@/api/client'
+import { AWS_COLORS, AWS_COLOR_NAMES, awsColorLabel } from '@/lib/aws-colors'
 import { listJobs } from '@/api/jobs'
 import SearchInput from '@/components/SearchInput'
 import CredentialsDialog from '@/components/CredentialsDialog'
@@ -94,6 +97,35 @@ export default function AccountDetail() {
 
   // Quick-create state
   const [creating, setCreating] = useState(false)
+
+  // Alias editing state
+  const [editingAlias, setEditingAlias] = useState(false)
+  const [aliasValue, setAliasValue] = useState('')
+
+  const aliasMutation = useMutation({
+    mutationFn: (alias: string) => updateAccount(id!, { alias }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['account', id] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      setEditingAlias(false)
+      toast.success('Account alias updated')
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to update alias')
+    },
+  })
+
+  const colorMutation = useMutation({
+    mutationFn: (color: string) => updateAccount(id!, { color }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['account', id] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      toast.success('Account color updated')
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to update color')
+    },
+  })
 
   const handleDialogChange = (open: boolean) => {
     setDialogOpen(open)
@@ -279,6 +311,105 @@ export default function AccountDetail() {
             <div>
               <dt className="text-muted-foreground">Last Updated</dt>
               <dd>{new Date(account.updated_at).toLocaleDateString()}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Account Alias</dt>
+              <dd>
+                {editingAlias ? (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      value={aliasValue}
+                      onChange={(e) => setAliasValue(e.target.value)}
+                      placeholder="e.g. my-prod-account"
+                      className="h-7 w-48 text-sm"
+                      pattern="[a-z0-9-]*"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => aliasMutation.mutate(aliasValue)}
+                      disabled={aliasMutation.isPending}
+                    >
+                      <Check className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => setEditingAlias(false)}
+                    >
+                      <X className="size-3.5" />
+                    </Button>
+                  </div>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    {account.alias ?? '—'}
+                    {isAdmin && account.status === 'active' && (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => {
+                          setAliasValue(account.alias ?? '')
+                          setEditingAlias(true)
+                        }}
+                      >
+                        <Pencil className="size-3" />
+                      </Button>
+                    )}
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Account Color</dt>
+              <dd>
+                {isAdmin && account.status === 'active' ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="xs" className="gap-1.5" disabled={colorMutation.isPending}>
+                        {account.color && AWS_COLORS[account.color] ? (
+                          <>
+                            <span
+                              className="inline-block size-3 rounded-sm"
+                              style={{ backgroundColor: AWS_COLORS[account.color] }}
+                            />
+                            {awsColorLabel(account.color)}
+                          </>
+                        ) : (
+                          'None'
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => colorMutation.mutate('none')}>
+                        None
+                      </DropdownMenuItem>
+                      {AWS_COLOR_NAMES.map((c) => (
+                        <DropdownMenuItem key={c} onClick={() => colorMutation.mutate(c)}>
+                          <span
+                            className="inline-block size-3 rounded-sm mr-2"
+                            style={{ backgroundColor: AWS_COLORS[c] }}
+                          />
+                          {awsColorLabel(c)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    {account.color && AWS_COLORS[account.color] ? (
+                      <>
+                        <span
+                          className="inline-block size-3 rounded-sm"
+                          style={{ backgroundColor: AWS_COLORS[account.color] }}
+                        />
+                        {awsColorLabel(account.color)}
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </span>
+                )}
+              </dd>
             </div>
           </dl>
         </CardContent>
