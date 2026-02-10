@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { toast } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -111,6 +112,7 @@ export default function RoleTemplates() {
         })
       }
       queryClient.invalidateQueries({ queryKey: ['role-templates'] })
+      toast.success(editing ? 'Template updated' : 'Template created')
       setDialogOpen(false)
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to save template')
@@ -124,8 +126,9 @@ export default function RoleTemplates() {
     try {
       await deleteRoleTemplate(template.id)
       queryClient.invalidateQueries({ queryKey: ['role-templates'] })
+      toast.success('Template deleted')
     } catch (err) {
-      alert(err instanceof ApiError ? err.detail : 'Failed to delete template')
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to delete template')
     }
   }
 

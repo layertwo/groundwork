@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -93,6 +94,7 @@ export default function RoleCreate() {
         description: description || null,
       })
       await queryClient.invalidateQueries({ queryKey: ['roles'] })
+      toast.success('Role created')
       navigate(`/accounts/${accountId}`)
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to create role')

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +32,6 @@ export default function FederateDropdown({
   const [credentialsRoleName, setCredentialsRoleName] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loading, setLoading] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   const disabled = accountStatus !== 'active' || roles.length === 0
 
@@ -42,17 +42,17 @@ export default function FederateDropdown({
 
   const handleFederate = async (roleName: string) => {
     setLoading(roleName)
-    setError(null)
     try {
       const res = (await federate(awsAccountId, roleName, 'console')) as ConsoleUrlResponse
       const url = new URL(res.console_url)
       if (url.protocol !== 'https:' || !url.hostname.endsWith('.aws.amazon.com')) {
-        setError('Invalid console URL returned')
+        toast.error('Invalid console URL returned')
         return
       }
       window.open(res.console_url, '_blank', 'noopener,noreferrer')
+      toast.success('Opened AWS Console')
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Failed to federate')
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to federate')
     } finally {
       setLoading(null)
     }
@@ -60,14 +60,13 @@ export default function FederateDropdown({
 
   const handleCopyCli = async (roleName: string) => {
     setLoading(roleName)
-    setError(null)
     try {
       const res = (await federate(awsAccountId, roleName, 'cli')) as AssumeRoleResponse
       setCredentials(res)
       setCredentialsRoleName(roleName)
       setDialogOpen(true)
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Failed to get credentials')
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to get credentials')
     } finally {
       setLoading(null)
     }
@@ -96,9 +95,6 @@ export default function FederateDropdown({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      {error && (
-        <p className="text-sm text-destructive mt-1">{error}</p>
-      )}
       <CredentialsDialog
         open={dialogOpen}
         onOpenChange={handleDialogChange}

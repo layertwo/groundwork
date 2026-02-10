@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { toast } from 'sonner'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
@@ -69,7 +70,6 @@ export default function AccountDetail() {
   const [credentialsRoleName, setCredentialsRoleName] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loading, setLoading] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   // Edit dialog state
   const [editRole, setEditRole] = useState<RoleResponse | null>(null)
@@ -124,7 +124,6 @@ export default function AccountDetail() {
 
   const handleFederate = async (roleName: string) => {
     setLoading(roleName)
-    setError(null)
     try {
       const res = (await federate(
         account!.aws_account_id!,
@@ -133,12 +132,13 @@ export default function AccountDetail() {
       )) as ConsoleUrlResponse
       const url = new URL(res.console_url)
       if (url.protocol !== 'https:' || !url.hostname.endsWith('.aws.amazon.com')) {
-        setError('Invalid console URL returned')
+        toast.error('Invalid console URL returned')
         return
       }
       window.open(res.console_url, '_blank', 'noopener,noreferrer')
+      toast.success('Opened AWS Console')
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Failed to federate')
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to federate')
     } finally {
       setLoading(null)
     }
@@ -146,7 +146,6 @@ export default function AccountDetail() {
 
   const handleCopyCli = async (roleName: string) => {
     setLoading(roleName)
-    setError(null)
     try {
       const res = (await federate(
         account!.aws_account_id!,
@@ -157,7 +156,7 @@ export default function AccountDetail() {
       setCredentialsRoleName(roleName)
       setDialogOpen(true)
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Failed to get credentials')
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to get credentials')
     } finally {
       setLoading(null)
     }
@@ -165,13 +164,13 @@ export default function AccountDetail() {
 
   const handleDelete = async (roleId: string) => {
     if (!id || !confirm('Delete this role? This will remove the IAM role from AWS.')) return
-    setError(null)
     try {
       await deleteRole(id, roleId)
       refetchRoles()
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      toast.success('Role deletion started')
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Failed to delete role')
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to delete role')
     }
   }
 
@@ -182,7 +181,6 @@ export default function AccountDetail() {
 
   const handleQuickCreate = async (templateId: string, templateName: string) => {
     if (!id) return
-    setError(null)
     setCreating(true)
     try {
       await createRole(id, {
@@ -191,8 +189,9 @@ export default function AccountDetail() {
       })
       refetchRoles()
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      toast.success('Role creation started')
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Failed to create role from template')
+      toast.error(err instanceof ApiError ? err.detail : 'Failed to create role from template')
     } finally {
       setCreating(false)
     }
@@ -448,8 +447,6 @@ export default function AccountDetail() {
           </div>
         )}
       </div>
-
-      {error && <p className="text-sm text-destructive">{error}</p>}
 
       <CredentialsDialog
         open={dialogOpen}
