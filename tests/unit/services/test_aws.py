@@ -782,3 +782,85 @@ class TestGetAccountOu:
             ou_id = await aws.get_account_ou("222222222222")
 
         assert ou_id == "r-abc1"
+
+
+class TestGetAccountAlias:
+    async def test_returns_alias_when_set(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "list_account_aliases",
+            {"AccountAliases": ["my-alias"], "IsTruncated": False},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            result = await aws.get_account_alias("123456789012")
+
+        assert result == "my-alias"
+        iam_stubber.assert_no_pending_responses()
+
+    async def test_returns_none_when_no_alias(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "list_account_aliases",
+            {"AccountAliases": [], "IsTruncated": False},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            result = await aws.get_account_alias("123456789012")
+
+        assert result is None
+        iam_stubber.assert_no_pending_responses()
+
+
+class TestSetAccountAlias:
+    async def test_creates_alias(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "create_account_alias",
+            {},
+            expected_params={"AccountAlias": "my-alias"},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            await aws.set_account_alias("123456789012", "my-alias")
+
+        iam_stubber.assert_no_pending_responses()
+
+
+class TestDeleteAccountAlias:
+    async def test_deletes_alias(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "delete_account_alias",
+            {},
+            expected_params={"AccountAlias": "my-alias"},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            await aws.delete_account_alias("123456789012", "my-alias")
+
+        iam_stubber.assert_no_pending_responses()

@@ -404,6 +404,43 @@ async def delete_iam_role(aws_account_id: str, role_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Account alias management
+# ---------------------------------------------------------------------------
+
+
+async def get_account_alias(aws_account_id: str) -> str | None:
+    """Get the IAM account alias for a member account.
+
+    Returns the alias string, or None if no alias is set.
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+    async with target_session.client("iam") as iam:
+        resp = await iam.list_account_aliases()
+        aliases = resp.get("AccountAliases", [])
+        return aliases[0] if aliases else None
+
+
+async def set_account_alias(aws_account_id: str, alias: str) -> None:
+    """Set the IAM account alias for a member account.
+
+    AWS only allows one alias per account; creating a new alias overwrites
+    the previous one.
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+    async with target_session.client("iam") as iam:
+        await iam.create_account_alias(AccountAlias=alias)
+    logger.info("Set account alias '%s' for account %s", alias, aws_account_id)
+
+
+async def delete_account_alias(aws_account_id: str, alias: str) -> None:
+    """Delete the IAM account alias for a member account."""
+    target_session = await assume_groundwork_admin(aws_account_id)
+    async with target_session.client("iam") as iam:
+        await iam.delete_account_alias(AccountAlias=alias)
+    logger.info("Deleted account alias '%s' from account %s", alias, aws_account_id)
+
+
+# ---------------------------------------------------------------------------
 # Role assumption (Phase 4)
 # ---------------------------------------------------------------------------
 
