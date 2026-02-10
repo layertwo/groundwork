@@ -4,11 +4,14 @@ from unittest.mock import AsyncMock, patch
 
 from backend.models.account import Account
 from backend.models.job import Job
+from backend.models.role import Role
 from backend.models.user import User
 from backend.services.jobs import (
     run_bootstrap_account,
+    run_create_role,
     run_provision_account,
     run_sync_accounts,
+    run_update_role,
 )
 
 
@@ -545,3 +548,292 @@ class TestSyncAccountsExistingAccounts:
             )
         )
         assert result.scalar_one() is not None
+
+
+class TestCreateRoleSuccess:
+    async def test_create_role_calls_aws_with_new_signature(self, db_session):
+        """run_create_role passes role_id and account_id instead of OIDC params."""
+        user = await _create_user(db_session)
+
+        account = Account(
+            account_name="Role Account",
+            account_email=f"role-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            aws_account_id="111111111111",
+            status="active",
+            oidc_provider_arn="arn:aws:iam::111111111111:oidc-provider/idp.example.com",
+            created_by=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        role = Role(
+            account_id=account.id,
+            role_name="TestRole",
+            role_arn="",
+            allowed_groups=["devs"],
+            allowed_users=["user1@example.com"],
+            managed_policy_arns=["arn:aws:iam::aws:policy/ReadOnlyAccess"],
+            inline_policy=None,
+            api_session_duration=900,
+            console_session_duration=3600,
+            status="pending",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        job = Job(
+            account_id=account.id,
+            job_type="create_role",
+            status="pending",
+            started_by=user.id,
+            result={"role_id": str(role.id)},
+        )
+        db_session.add(job)
+        await db_session.flush()
+
+        mock_arn = "arn:aws:iam::111111111111:role/TestRole"
+        with patch(
+            "backend.services.jobs.aws.create_iam_role",
+            new_callable=AsyncMock,
+            return_value=mock_arn,
+        ) as mock_create:
+            await run_create_role(job, db_session)
+
+        mock_create.assert_called_once_with(
+            aws_account_id="111111111111",
+            role_name="TestRole",
+            role_id=str(role.id),
+            account_id=str(role.account_id),
+            managed_policy_arns=["arn:aws:iam::aws:policy/ReadOnlyAccess"],
+            inline_policy=None,
+            max_duration=3600,
+        )
+
+        await db_session.refresh(role)
+        await db_session.refresh(job)
+        assert role.status == "active"
+        assert role.role_arn == mock_arn
+        assert job.status == "completed"
+        assert job.completed_at is not None
+
+    async def test_create_role_missing_role_fails(self, db_session):
+        """run_create_role fails gracefully when the role record is missing."""
+        user = await _create_user(db_session)
+
+        import uuid
+
+        job = Job(
+            job_type="create_role",
+            status="pending",
+            started_by=user.id,
+            result={"role_id": str(uuid.uuid4())},
+        )
+        db_session.add(job)
+        await db_session.flush()
+
+        await run_create_role(job, db_session)
+
+        await db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == "Associated role not found"
+
+
+class TestCreateRoleFailure:
+    async def test_aws_error_marks_role_and_job_failed(self, db_session):
+        """AWS error during create_iam_role marks both role and job as failed."""
+        user = await _create_user(db_session)
+
+        account = Account(
+            account_name="Role Fail Account",
+            account_email=f"rfail-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            aws_account_id="222222222222",
+            status="active",
+            oidc_provider_arn="arn:aws:iam::222222222222:oidc-provider/idp.example.com",
+            created_by=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        role = Role(
+            account_id=account.id,
+            role_name="FailRole",
+            role_arn="",
+            allowed_groups=[],
+            allowed_users=[],
+            managed_policy_arns=[],
+            inline_policy=None,
+            api_session_duration=900,
+            console_session_duration=3600,
+            status="pending",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        job = Job(
+            account_id=account.id,
+            job_type="create_role",
+            status="pending",
+            started_by=user.id,
+            result={"role_id": str(role.id)},
+        )
+        db_session.add(job)
+        await db_session.flush()
+
+        with patch(
+            "backend.services.jobs.aws.create_iam_role",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("IAM CreateRole failed"),
+        ):
+            await run_create_role(job, db_session)
+
+        await db_session.refresh(role)
+        await db_session.refresh(job)
+        assert role.status == "failed"
+        assert job.status == "failed"
+        assert job.completed_at is not None
+
+
+class TestUpdateRoleSuccess:
+    async def test_update_role_calls_aws_without_oidc_provider_arn(self, db_session):
+        """run_update_role no longer passes oidc_provider_arn to aws.update_iam_role."""
+        user = await _create_user(db_session)
+
+        account = Account(
+            account_name="Update Role Account",
+            account_email=f"upd-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            aws_account_id="333333333333",
+            status="active",
+            oidc_provider_arn="arn:aws:iam::333333333333:oidc-provider/idp.example.com",
+            created_by=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        role = Role(
+            account_id=account.id,
+            role_name="UpdateRole",
+            role_arn="arn:aws:iam::333333333333:role/UpdateRole",
+            allowed_groups=["devs"],
+            allowed_users=[],
+            managed_policy_arns=["arn:aws:iam::aws:policy/ReadOnlyAccess"],
+            inline_policy=None,
+            api_session_duration=900,
+            console_session_duration=3600,
+            status="active",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        changes = {"managed_policy_arns": ["arn:aws:iam::aws:policy/PowerUserAccess"]}
+
+        job = Job(
+            account_id=account.id,
+            job_type="update_role",
+            status="pending",
+            started_by=user.id,
+            result={"role_id": str(role.id), "changes": changes},
+        )
+        db_session.add(job)
+        await db_session.flush()
+
+        with patch(
+            "backend.services.jobs.aws.update_iam_role",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            await run_update_role(job, db_session)
+
+        mock_update.assert_called_once_with(
+            aws_account_id="333333333333",
+            role_name="UpdateRole",
+            changes=changes,
+        )
+
+        await db_session.refresh(role)
+        await db_session.refresh(job)
+        assert role.status == "active"
+        assert job.status == "completed"
+        assert job.completed_at is not None
+
+    async def test_update_role_missing_role_fails(self, db_session):
+        """run_update_role fails gracefully when the role record is missing."""
+        user = await _create_user(db_session)
+
+        import uuid
+
+        job = Job(
+            job_type="update_role",
+            status="pending",
+            started_by=user.id,
+            result={"role_id": str(uuid.uuid4()), "changes": {}},
+        )
+        db_session.add(job)
+        await db_session.flush()
+
+        await run_update_role(job, db_session)
+
+        await db_session.refresh(job)
+        assert job.status == "failed"
+        assert job.error_message == "Associated role not found"
+
+
+class TestUpdateRoleFailure:
+    async def test_aws_error_marks_role_and_job_failed(self, db_session):
+        """AWS error during update_iam_role marks both role and job as failed."""
+        user = await _create_user(db_session)
+
+        account = Account(
+            account_name="Update Fail Account",
+            account_email=f"ufail-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            aws_account_id="444444444444",
+            status="active",
+            oidc_provider_arn="arn:aws:iam::444444444444:oidc-provider/idp.example.com",
+            created_by=user.id,
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        role = Role(
+            account_id=account.id,
+            role_name="FailUpdateRole",
+            role_arn="arn:aws:iam::444444444444:role/FailUpdateRole",
+            allowed_groups=[],
+            allowed_users=[],
+            managed_policy_arns=[],
+            inline_policy=None,
+            api_session_duration=900,
+            console_session_duration=3600,
+            status="active",
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        job = Job(
+            account_id=account.id,
+            job_type="update_role",
+            status="pending",
+            started_by=user.id,
+            result={"role_id": str(role.id), "changes": {"max_duration": 7200}},
+        )
+        db_session.add(job)
+        await db_session.flush()
+
+        with patch(
+            "backend.services.jobs.aws.update_iam_role",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("IAM UpdateRole failed"),
+        ):
+            await run_update_role(job, db_session)
+
+        await db_session.refresh(role)
+        await db_session.refresh(job)
+        assert role.status == "failed"
+        assert job.status == "failed"
+        assert job.completed_at is not None

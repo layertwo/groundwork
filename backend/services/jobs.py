@@ -479,9 +479,8 @@ async def run_create_role(job: Job, db: AsyncSession) -> None:
         role_arn = await aws.create_iam_role(
             aws_account_id=account.aws_account_id,
             role_name=role.role_name,
-            oidc_provider_arn=account.oidc_provider_arn,
-            allowed_groups=role.allowed_groups,
-            allowed_users=role.allowed_users,
+            role_id=str(role.id),
+            account_id=str(role.account_id),
             managed_policy_arns=role.managed_policy_arns,
             inline_policy=role.inline_policy,
             max_duration=max(role.api_session_duration, role.console_session_duration),
@@ -558,7 +557,6 @@ async def run_update_role(job: Job, db: AsyncSession) -> None:
         await aws.update_iam_role(
             aws_account_id=account.aws_account_id,
             role_name=role.role_name,
-            oidc_provider_arn=account.oidc_provider_arn,
             changes=changes,
         )
 
