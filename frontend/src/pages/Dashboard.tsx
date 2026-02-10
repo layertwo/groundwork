@@ -220,6 +220,7 @@ export default function Dashboard() {
                         <FederateDropdown
                           accountName={account.account_name}
                           accountStatus={account.status}
+                          awsAccountId={account.aws_account_id ?? ''}
                           roles={rolesByAccount[account.id] ?? []}
                         />
                       </TableCell>

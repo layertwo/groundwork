@@ -4,10 +4,9 @@ import asyncio
 import hashlib
 import json
 import logging
-import ssl
 from datetime import datetime
 from typing import TypedDict
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 import aioboto3
 import aiohttp
@@ -25,6 +24,15 @@ class STSCredentials(TypedDict):
     secret_access_key: str
     session_token: str
     expiration: datetime
+
+
+def compute_external_id(role_id: str, account_id: str) -> str:
+    """Compute a deterministic External ID for confusion-deputy protection.
+
+    Format: Groundwork-{first 16 hex chars of SHA-256(role_id + account_id)}.
+    """
+    digest = hashlib.sha256(f"{role_id}{account_id}".encode()).hexdigest()[:16]
+    return f"Groundwork-{digest}"
 
 
 def get_session() -> aioboto3.Session:
@@ -178,7 +186,7 @@ async def bootstrap_account(aws_account_id: str, ou_id: str | None = None) -> di
     instance is deployed to the target account. If the instance is not
     found and ou_id is provided, triggers a manual deployment.
 
-    Returns dict with oidc_provider_arn and admin_role_arn.
+    Returns dict with admin_role_arn.
     """
     await ensure_bootstrap_stackset()
 
@@ -204,51 +212,16 @@ async def bootstrap_account(aws_account_id: str, ou_id: str | None = None) -> di
     else:
         raise RuntimeError(f"Bootstrap stack deployment timed out for account {aws_account_id}")
 
-    # Compute ARNs deterministically from known inputs
-    issuer_host = urlparse(settings.oidc_issuer_url).hostname
-    oidc_provider_arn = f"arn:aws:iam::{aws_account_id}:oidc-provider/{issuer_host}"
     admin_role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
 
     logger.info(
-        "Bootstrap complete for account %s: oidc=%s role=%s",
+        "Bootstrap complete for account %s: role=%s",
         aws_account_id,
-        oidc_provider_arn,
         admin_role_arn,
     )
     return {
-        "oidc_provider_arn": oidc_provider_arn,
         "admin_role_arn": admin_role_arn,
     }
-
-
-async def get_oidc_thumbprint(issuer_url: str) -> str:
-    """Fetch the TLS certificate thumbprint for an OIDC issuer.
-
-    AWS requires this for create_open_id_connect_provider.
-    """
-    parsed = urlparse(issuer_url)
-    if parsed.scheme != "https":
-        raise ValueError("OIDC issuer must use HTTPS")
-    if not parsed.hostname:
-        raise ValueError("OIDC issuer URL has no hostname")
-    hostname = parsed.hostname
-    port = parsed.port or 443
-
-    ctx = ssl.create_default_context()
-    der_cert = await _fetch_server_cert(hostname, port, ctx)
-
-    thumbprint = hashlib.sha1(der_cert).hexdigest()  # noqa: S324
-    return thumbprint
-
-
-async def _fetch_server_cert(hostname: str, port: int, ctx: ssl.SSLContext) -> bytes:
-    """Connect to host and return DER-encoded server certificate."""
-    reader, writer = await asyncio.open_connection(hostname, port, ssl=ctx)
-    ssl_object = writer.transport.get_extra_info("ssl_object")
-    der_cert = ssl_object.getpeercert(binary_form=True)
-    writer.close()
-    await writer.wait_closed()
-    return der_cert
 
 
 # ---------------------------------------------------------------------------
@@ -277,86 +250,48 @@ async def assume_groundwork_admin(aws_account_id: str) -> aioboto3.Session:
     )
 
 
-def _build_trust_policy(
-    oidc_provider_arn: str,
-    allowed_groups: list[str],
-    allowed_users: list[str],
-) -> str:
-    """Build an IAM trust policy for OIDC federation.
+def _build_trust_policy(external_id: str) -> str:
+    """Build an IAM trust policy for AssumeRole from the Groundwork account.
 
-    AWS STS ``AssumeRoleWithWebIdentity`` only exposes ``aud`` and ``sub``
-    as condition keys for custom OIDC providers — arbitrary claims like
-    ``groups`` are **not** evaluated.  Group-based access control is
-    therefore enforced at the application layer (see
-    ``_load_role_for_assumption``) before the STS call.
-
-    The trust policy produced here:
-    - **Group access** — gates only on ``aud`` (any token issued by the
-      correct IdP for this client can assume the role; Groundwork checks
-      group membership before calling STS).
-    - **User access** — gates on both ``aud`` and ``sub`` (AWS can enforce
-      the user identity directly).
+    The trust policy allows the Groundwork AWS account root to assume
+    the role, gated by an External ID condition for confusion-deputy
+    protection.  User/group access control is enforced entirely at the
+    application layer before the STS call.
     """
-    # Extract issuer host from the OIDC provider ARN
-    # ARN format: arn:aws:iam::<account>:oidc-provider/<issuer_host>
-    issuer = oidc_provider_arn.split(":oidc-provider/", 1)[1]
-
-    statements: list[dict] = []
-
-    if allowed_groups:
-        # AWS STS does not support {issuer}:groups as a condition key for
-        # custom OIDC providers, so we only check the audience claim here.
-        # Group membership is enforced by Groundwork before the STS call.
-        statements.append(
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
             {
-                "Sid": "AllowGroupAccess",
+                "Sid": "AllowGroundworkAssume",
                 "Effect": "Allow",
-                "Principal": {"Federated": oidc_provider_arn},
-                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Principal": {"AWS": f"arn:aws:iam::{settings.aws_groundwork_account_id}:root"},
+                "Action": "sts:AssumeRole",
                 "Condition": {
                     "StringEquals": {
-                        f"{issuer}:aud": settings.oidc_client_id,
+                        "sts:ExternalId": external_id,
                     },
                 },
             }
-        )
-
-    if allowed_users:
-        statements.append(
-            {
-                "Sid": "AllowUserAccess",
-                "Effect": "Allow",
-                "Principal": {"Federated": oidc_provider_arn},
-                "Action": "sts:AssumeRoleWithWebIdentity",
-                "Condition": {
-                    "StringEquals": {
-                        f"{issuer}:aud": settings.oidc_client_id,
-                        f"{issuer}:sub": allowed_users,
-                    },
-                },
-            }
-        )
-
-    policy = {"Version": "2012-10-17", "Statement": statements}
+        ],
+    }
     return json.dumps(policy)
 
 
 async def create_iam_role(
     aws_account_id: str,
     role_name: str,
-    oidc_provider_arn: str,
-    allowed_groups: list[str],
-    allowed_users: list[str],
+    role_id: str,
     managed_policy_arns: list[str],
     inline_policy: dict | None,
     max_duration: int,
 ) -> str:
-    """Create an IAM role in the target account with OIDC trust policy.
+    """Create an IAM role in the target account with Groundwork trust policy.
 
     Returns the role ARN.
     """
     target_session = await assume_groundwork_admin(aws_account_id)
-    trust_policy = _build_trust_policy(oidc_provider_arn, allowed_groups, allowed_users)
+    external_id = compute_external_id(role_id, aws_account_id)
+    trust_policy = _build_trust_policy(external_id)
 
     async with target_session.client("iam") as iam:
         resp = await iam.create_role(
@@ -383,36 +318,17 @@ async def create_iam_role(
 async def update_iam_role(
     aws_account_id: str,
     role_name: str,
-    oidc_provider_arn: str,
     changes: dict,
 ) -> None:
     """Update an IAM role in the target account.
 
     ``changes`` is a dict of field names to new values. Only fields present
-    in the dict are updated. When updating trust policy fields, the caller
-    must include both ``allowed_groups`` and ``allowed_users`` (with their
-    full current values) to avoid losing existing access.
+    in the dict are updated. Trust policy is not updated since access control
+    is enforced at the application layer and the External ID is static.
     """
     target_session = await assume_groundwork_admin(aws_account_id)
 
     async with target_session.client("iam") as iam:
-        # Trust policy update if groups or users changed
-        if "allowed_groups" in changes or "allowed_users" in changes:
-            if "allowed_groups" not in changes or "allowed_users" not in changes:
-                raise ValueError(
-                    "Both allowed_groups and allowed_users must be provided "
-                    "when updating trust policy"
-                )
-            trust_policy = _build_trust_policy(
-                oidc_provider_arn,
-                changes["allowed_groups"],
-                changes["allowed_users"],
-            )
-            await iam.update_assume_role_policy(
-                RoleName=role_name,
-                PolicyDocument=trust_policy,
-            )
-
         # Max session duration (derived from the larger of api/console duration)
         if "api_session_duration" in changes or "console_session_duration" in changes:
             max_dur = max(
@@ -423,12 +339,10 @@ async def update_iam_role(
 
         # Managed policies
         if "managed_policy_arns" in changes:
-            # Detach all existing managed policies
             paginator = iam.get_paginator("list_attached_role_policies")
             async for page in paginator.paginate(RoleName=role_name):
                 for policy in page.get("AttachedPolicies", []):
                     await iam.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
-            # Attach new ones
             for arn in changes["managed_policy_arns"]:
                 await iam.attach_role_policy(RoleName=role_name, PolicyArn=arn)
 
@@ -494,48 +408,43 @@ async def delete_iam_role(aws_account_id: str, role_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def assume_role_with_web_identity(
+async def assume_role(
     role_arn: str,
-    id_token: str,
-    session_duration: int,
     session_name: str,
+    external_id: str,
+    session_duration: int,
 ) -> STSCredentials:
-    """Assume an IAM role using an OIDC id_token via STS.
+    """Assume an IAM role from the Groundwork account via STS.
 
     Returns STSCredentials with access_key_id, secret_access_key,
     session_token, and expiration.
 
     Raises :class:`~backend.exceptions.ForbiddenError` when STS denies the
-    assumption (trust policy mismatch, expired token, etc.).
+    assumption (trust policy mismatch, bad External ID, etc.).
     """
     from backend.exceptions import ForbiddenError
 
     session = get_session()
     try:
         async with session.client("sts") as sts:
-            resp = await sts.assume_role_with_web_identity(
+            resp = await sts.assume_role(
                 RoleArn=role_arn,
                 RoleSessionName=session_name,
-                WebIdentityToken=id_token,
+                ExternalId=external_id,
                 DurationSeconds=session_duration,
             )
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         if code in ("AccessDenied", "AccessDeniedException"):
             logger.warning(
-                "STS AssumeRoleWithWebIdentity denied for role %s session %s: %s",
+                "STS AssumeRole denied for role %s session %s: %s",
                 role_arn,
                 session_name,
                 exc.response["Error"].get("Message", ""),
             )
             raise ForbiddenError(
                 "Role assumption denied — check that the role's trust policy "
-                "allows your identity provider, audience, and user/group claims"
-            ) from exc
-        if code == "ExpiredTokenException":
-            logger.warning("STS denied: id_token expired for role %s", role_arn)
-            raise ForbiddenError(
-                "Role assumption denied — your session token has expired, please re-login"
+                "and External ID are correctly configured"
             ) from exc
         raise
     creds = resp["Credentials"]
@@ -660,17 +569,11 @@ async def ensure_bootstrap_stackset() -> None:
 
     Uses service-managed permissions with auto-deploy enabled, targeting
     the entire organization. On every call the StackSet template is
-    re-applied so that configuration changes (OIDC settings, role name,
-    etc.) are picked up on restart.
+    re-applied so that configuration changes are picked up on restart.
     """
     session = get_session()
 
-    # Compute thumbprint and generate template (needed for both create and update)
-    thumbprint = await get_oidc_thumbprint(settings.oidc_issuer_url)
     template_body = _build_bootstrap_template(
-        oidc_issuer_url=settings.oidc_issuer_url,
-        oidc_client_id=settings.oidc_client_id,
-        oidc_thumbprint=thumbprint,
         groundwork_account_id=settings.aws_groundwork_account_id,
         admin_role_name=settings.admin_role_name,
     )
@@ -692,7 +595,7 @@ async def ensure_bootstrap_stackset() -> None:
             try:
                 await cfn.update_stack_set(
                     StackSetName=BOOTSTRAP_STACKSET_NAME,
-                    Description="Groundwork bootstrap - OIDC provider and admin role",
+                    Description="Groundwork bootstrap - admin role for member accounts",
                     TemplateBody=template_body,
                     Capabilities=["CAPABILITY_NAMED_IAM"],
                     CallAs="DELEGATED_ADMIN",
@@ -706,7 +609,7 @@ async def ensure_bootstrap_stackset() -> None:
         else:
             await cfn.create_stack_set(
                 StackSetName=BOOTSTRAP_STACKSET_NAME,
-                Description="Groundwork bootstrap - OIDC provider and admin role",
+                Description="Groundwork bootstrap - admin role for member accounts",
                 TemplateBody=template_body,
                 PermissionModel="SERVICE_MANAGED",
                 AutoDeployment={"Enabled": True, "RetainStacksOnAccountRemoval": False},
@@ -730,33 +633,21 @@ async def ensure_bootstrap_stackset() -> None:
 
 
 def _build_bootstrap_template(
-    oidc_issuer_url: str,
-    oidc_client_id: str,
-    oidc_thumbprint: str,
     groundwork_account_id: str,
     admin_role_name: str = "GroundworkAdmin-DO-NOT-DELETE",
 ) -> str:
     """Build a CloudFormation template for bootstrapping member accounts.
 
-    Generates a template that creates:
-    - An OIDC identity provider pointing at the configured issuer
-    - An admin management role trusted by the Groundwork service account
+    Generates a template that creates an admin management role trusted
+    by the Groundwork service account.
 
     Returns a JSON string suitable for passing as ``TemplateBody``
     to CloudFormation ``CreateStackSet``.
     """
     template: dict = {
         "AWSTemplateFormatVersion": "2010-09-09",
-        "Description": "Groundwork bootstrap - OIDC provider and admin role for member accounts",
+        "Description": "Groundwork bootstrap - admin role for member accounts",
         "Resources": {
-            "OidcProvider": {
-                "Type": "AWS::IAM::OIDCProvider",
-                "Properties": {
-                    "Url": oidc_issuer_url,
-                    "ClientIdList": [oidc_client_id],
-                    "ThumbprintList": [oidc_thumbprint],
-                },
-            },
             "AdminRole": {
                 "Type": "AWS::IAM::Role",
                 "Properties": {
@@ -780,10 +671,6 @@ def _build_bootstrap_template(
             },
         },
         "Outputs": {
-            "OidcProviderArn": {
-                "Description": "ARN of the OIDC identity provider",
-                "Value": {"Ref": "OidcProvider"},
-            },
             "AdminRoleArn": {
                 "Description": "ARN of the Groundwork admin role",
                 "Value": {"Fn::GetAtt": ["AdminRole", "Arn"]},

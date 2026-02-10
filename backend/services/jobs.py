@@ -134,7 +134,7 @@ async def run_provision_account(job: Job, db: AsyncSession) -> None:
     1. Create account via Organizations
     2. Poll until creation completes
     3. Move account to target OU
-    4. Bootstrap account (OIDC provider + admin role)
+    4. Bootstrap account (admin role via StackSet)
     5. Mark account active
     """
     now = datetime.now(timezone.utc)
@@ -193,7 +193,6 @@ async def run_provision_account(job: Job, db: AsyncSession) -> None:
         bootstrap_result = await aws.bootstrap_account(
             account.aws_account_id, ou_id=account.organizational_unit
         )
-        account.oidc_provider_arn = bootstrap_result["oidc_provider_arn"]
 
         # Step 5: Mark complete
         account.status = "active"
@@ -244,7 +243,7 @@ async def run_provision_account(job: Job, db: AsyncSession) -> None:
 async def run_bootstrap_account(job: Job, db: AsyncSession) -> None:
     """Bootstrap a single account via StackSet deployment.
 
-    Deploys the OIDC provider + admin role, then marks the account active.
+    Deploys the admin role, then marks the account active.
     """
     now = datetime.now(timezone.utc)
     job.status = "in_progress"
@@ -266,7 +265,6 @@ async def run_bootstrap_account(job: Job, db: AsyncSession) -> None:
         bootstrap_result = await aws.bootstrap_account(
             account.aws_account_id, ou_id=account.organizational_unit
         )
-        account.oidc_provider_arn = bootstrap_result["oidc_provider_arn"]
         account.status = "active"
         db.add(account)
 
@@ -399,9 +397,7 @@ async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
                     counts["updated"] += 1
 
                 # Trigger bootstrap if needed
-                needs_bootstrap = aws_status == "ACTIVE" and (
-                    not account.oidc_provider_arn or account.status == "failed"
-                )
+                needs_bootstrap = aws_status == "ACTIVE" and account.status == "failed"
                 if needs_bootstrap:
                     bootstrap_job = Job(
                         account_id=account.id,
@@ -479,9 +475,7 @@ async def run_create_role(job: Job, db: AsyncSession) -> None:
         role_arn = await aws.create_iam_role(
             aws_account_id=account.aws_account_id,
             role_name=role.role_name,
-            oidc_provider_arn=account.oidc_provider_arn,
-            allowed_groups=role.allowed_groups,
-            allowed_users=role.allowed_users,
+            role_id=str(role.id),
             managed_policy_arns=role.managed_policy_arns,
             inline_policy=role.inline_policy,
             max_duration=max(role.api_session_duration, role.console_session_duration),
@@ -558,7 +552,6 @@ async def run_update_role(job: Job, db: AsyncSession) -> None:
         await aws.update_iam_role(
             aws_account_id=account.aws_account_id,
             role_name=role.role_name,
-            oidc_provider_arn=account.oidc_provider_arn,
             changes=changes,
         )
 

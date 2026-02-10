@@ -1,59 +1,10 @@
-"""Tests for AWS STS assume-role-with-web-identity and console URL functions."""
+"""Tests for AWS STS console URL federation functions."""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 
 from backend.services import aws
-from tests.fixtures.aws import _stubbed_session, create_stubbed_client
-
-ROLE_ARN = "arn:aws:iam::123456789012:role/TestRole"
-FAKE_ID_TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.sig"
-
-FAKE_STS_CREDENTIALS = {
-    "AccessKeyId": "AKIAIOSFODNN7EXAMPLE",
-    "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-    "SessionToken": "FwoGZXIvYXdzEBYaDHqa0AP1",
-    "Expiration": datetime(2026, 1, 1, tzinfo=timezone.utc),
-}
-
-
-class TestAssumeRoleWithWebIdentity:
-    async def test_returns_sts_credentials(self):
-        _, sts_stubber = await create_stubbed_client("sts")
-        sts_stubber.add_response(
-            "assume_role_with_web_identity",
-            {
-                "Credentials": FAKE_STS_CREDENTIALS,
-                "SubjectFromWebIdentityToken": "user-1",
-                "AssumedRoleUser": {
-                    "AssumedRoleId": "AROAEXAMPLE:user@example.com",
-                    "Arn": f"{ROLE_ARN}/user@example.com",
-                },
-            },
-            expected_params={
-                "RoleArn": ROLE_ARN,
-                "RoleSessionName": "user@example.com",
-                "WebIdentityToken": FAKE_ID_TOKEN,
-                "DurationSeconds": 900,
-            },
-        )
-        sts_stubber.activate()
-
-        session = _stubbed_session({"sts": sts_stubber})
-        with patch.object(aws, "get_session", return_value=session):
-            result = await aws.assume_role_with_web_identity(
-                role_arn=ROLE_ARN,
-                id_token=FAKE_ID_TOKEN,
-                session_duration=900,
-                session_name="user@example.com",
-            )
-
-        assert result["access_key_id"] == "AKIAIOSFODNN7EXAMPLE"
-        assert result["secret_access_key"] == "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-        assert result["session_token"] == "FwoGZXIvYXdzEBYaDHqa0AP1"
-        assert result["expiration"] == datetime(2026, 1, 1, tzinfo=timezone.utc)
-        sts_stubber.assert_no_pending_responses()
 
 
 class TestGetConsoleUrl:

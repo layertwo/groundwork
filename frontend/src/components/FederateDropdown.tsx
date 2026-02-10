@@ -10,19 +10,21 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import CredentialsDialog from './CredentialsDialog'
-import { assumeRole, getConsoleUrl } from '@/api/roles'
+import { federate } from '@/api/roles'
 import { ApiError } from '@/api/client'
-import type { RoleResponse, AssumeRoleResponse } from '@/api/roles'
+import type { RoleResponse, AssumeRoleResponse, ConsoleUrlResponse } from '@/api/roles'
 
 interface FederateDropdownProps {
   accountName: string
   accountStatus: string
+  awsAccountId: string
   roles: RoleResponse[]
 }
 
 export default function FederateDropdown({
   accountName,
   accountStatus,
+  awsAccountId,
   roles,
 }: FederateDropdownProps) {
   const [credentials, setCredentials] = useState<AssumeRoleResponse | null>(null)
@@ -38,11 +40,11 @@ export default function FederateDropdown({
     if (!open) setCredentials(null)
   }
 
-  const handleFederate = async (roleId: string) => {
-    setLoading(roleId)
+  const handleFederate = async (roleName: string) => {
+    setLoading(roleName)
     setError(null)
     try {
-      const res = await getConsoleUrl(roleId)
+      const res = (await federate(awsAccountId, roleName, 'console')) as ConsoleUrlResponse
       const url = new URL(res.console_url)
       if (url.protocol !== 'https:' || !url.hostname.endsWith('.aws.amazon.com')) {
         setError('Invalid console URL returned')
@@ -56,11 +58,11 @@ export default function FederateDropdown({
     }
   }
 
-  const handleCopyCli = async (roleId: string, roleName: string) => {
-    setLoading(roleId)
+  const handleCopyCli = async (roleName: string) => {
+    setLoading(roleName)
     setError(null)
     try {
-      const res = await assumeRole(roleId)
+      const res = (await federate(awsAccountId, roleName, 'cli')) as AssumeRoleResponse
       setCredentials(res)
       setCredentialsRoleName(roleName)
       setDialogOpen(true)
@@ -84,10 +86,10 @@ export default function FederateDropdown({
             <DropdownMenuGroup key={role.id}>
               {i > 0 && <DropdownMenuSeparator />}
               <DropdownMenuLabel>{role.role_name}</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleFederate(role.id)}>
+              <DropdownMenuItem onClick={() => handleFederate(role.role_name)}>
                 Federate
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleCopyCli(role.id, role.role_name)}>
+              <DropdownMenuItem onClick={() => handleCopyCli(role.role_name)}>
                 Copy CLI
               </DropdownMenuItem>
             </DropdownMenuGroup>

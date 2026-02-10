@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from backend.schemas.role import AssumeRoleRequest, AssumeRoleResponse, RoleResponse
+from backend.schemas.role import AssumeRoleResponse, RoleResponse
 
 
 class TestRoleResponse:
@@ -51,13 +51,6 @@ class TestRoleResponse:
         )
         assert resp.inline_policy is None
         assert resp.description is None
-
-
-class TestAssumeRoleRequest:
-    def test_create(self):
-        role_id = uuid4()
-        req = AssumeRoleRequest(role_id=role_id)
-        assert req.role_id == role_id
 
 
 class TestAssumeRoleResponse:

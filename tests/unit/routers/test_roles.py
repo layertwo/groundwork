@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
-from urllib.parse import urlparse
 
 from sqlalchemy import select
 
@@ -44,7 +43,7 @@ def _cookies(signed_id: str) -> dict:
 
 
 async def _create_active_account(db_session, admin_user):
-    """Helper to create an active account with an OIDC provider ARN."""
+    """Helper to create an active account."""
     account = Account(
         account_name="Test Account",
         account_email=f"acct-{id(db_session)}@example.com",
@@ -53,7 +52,6 @@ async def _create_active_account(db_session, admin_user):
         created_by=admin_user.id,
         status="active",
         aws_account_id="123456789012",
-        oidc_provider_arn="arn:aws:iam::123456789012:oidc-provider/idp.example.com",
     )
     db_session.add(account)
     await db_session.flush()
@@ -658,208 +656,9 @@ async def _create_role_for_assumption(db_session, account, **overrides):
     return role
 
 
-class TestAssumeRole:
-    async def test_assume_role_success(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
-            db_session, groups=["devs"], sub="dev-user-1"
-        )
-        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
-        account = await _create_active_account(db_session, admin)
-        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
-
-        with patch(
-            "backend.routers.roles.aws.assume_role_with_web_identity",
-            new_callable=AsyncMock,
-        ) as mock_assume:
-            mock_assume.return_value = FAKE_STS_CREDS
-
-            response = await client.post(
-                "/api/roles/assume",
-                json={"role_id": str(role.id)},
-                cookies=_cookies(session_id),
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["access_key_id"] == "AKIAIOSFODNN7EXAMPLE"
-        assert data["secret_access_key"] == "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-        assert data["session_token"] == "FwoGZXIvYXdzEBYaDHqa0AP1"
-        assert "expiration" in data
-
-        mock_assume.assert_called_once()
-        call_kwargs = mock_assume.call_args.kwargs
-        assert call_kwargs["role_arn"] == role.role_arn
-        assert call_kwargs["session_duration"] == 900
-        assert call_kwargs["session_name"] == user.email
-
-    async def test_assume_role_forbidden_no_group_match(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
-            db_session, groups=["finance"], sub="finance-user"
-        )
-        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
-        account = await _create_active_account(db_session, admin)
-        role = await _create_role_for_assumption(
-            db_session, account, allowed_groups=["devs"], allowed_users=[]
-        )
-
-        response = await client.post(
-            "/api/roles/assume",
-            json={"role_id": str(role.id)},
-            cookies=_cookies(session_id),
-        )
-
-        assert response.status_code == 403
-
-    async def test_assume_role_allowed_users_match(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
-            db_session, groups=[], sub="specific-user"
-        )
-        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
-        account = await _create_active_account(db_session, admin)
-        role = await _create_role_for_assumption(
-            db_session,
-            account,
-            allowed_groups=[],
-            allowed_users=["specific-user"],
-        )
-
-        with patch(
-            "backend.routers.roles.aws.assume_role_with_web_identity",
-            new_callable=AsyncMock,
-        ) as mock_assume:
-            mock_assume.return_value = FAKE_STS_CREDS
-
-            response = await client.post(
-                "/api/roles/assume",
-                json={"role_id": str(role.id)},
-                cookies=_cookies(session_id),
-            )
-
-        assert response.status_code == 200
-
-    async def test_assume_role_inactive_account_rejected(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
-            db_session, groups=["devs"], sub="dev-inactive"
-        )
-        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
-
-        account = Account(
-            account_name="Inactive",
-            account_email=f"inactive-assume-{id(db_session)}@example.com",
-            organizational_unit="ou-1234",
-            sso_user_email="sso@example.com",
-            created_by=admin.id,
-            status="pending",
-            aws_account_id="123456789012",
-            oidc_provider_arn="arn:aws:iam::123456789012:oidc-provider/idp.example.com",
-        )
-        db_session.add(account)
-        await db_session.flush()
-
-        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
-
-        response = await client.post(
-            "/api/roles/assume",
-            json={"role_id": str(role.id)},
-            cookies=_cookies(session_id),
-        )
-
-        assert response.status_code == 400
-
-    async def test_assume_role_token_refresh(self, client, db_session):
-        """When id_token is near expiry, it should be refreshed before STS call."""
-        user, session_id = await _create_user_with_tokens(
-            db_session, groups=["devs"], sub="dev-refresh", id_token_expires_in=30
-        )
-        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
-        account = await _create_active_account(db_session, admin)
-        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
-
-        fresh_id_token = make_id_token(sub="dev-refresh", expires_in=3600)
-
-        with (
-            patch(
-                "backend.routers.roles.aws.assume_role_with_web_identity",
-                new_callable=AsyncMock,
-            ) as mock_assume,
-            patch(
-                "backend.dependencies.auth.oidc.refresh_tokens",
-                new_callable=AsyncMock,
-            ) as mock_refresh,
-        ):
-            mock_assume.return_value = FAKE_STS_CREDS
-            mock_refresh.return_value = {
-                "access_token": "new-access",
-                "refresh_token": "new-refresh",
-                "id_token": fresh_id_token,
-                "expires_in": 3600,
-            }
-
-            response = await client.post(
-                "/api/roles/assume",
-                json={"role_id": str(role.id)},
-                cookies=_cookies(session_id),
-            )
-
-        assert response.status_code == 200
-        mock_refresh.assert_called_once()
-        # The STS call should use the refreshed token
-        call_kwargs = mock_assume.call_args.kwargs
-        assert call_kwargs["id_token"] == fresh_id_token
-
-    async def test_assume_role_audit_logged(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
-            db_session, groups=["devs"], sub="dev-audit"
-        )
-        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
-        account = await _create_active_account(db_session, admin)
-        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
-
-        with patch(
-            "backend.routers.roles.aws.assume_role_with_web_identity",
-            new_callable=AsyncMock,
-        ) as mock_assume:
-            mock_assume.return_value = FAKE_STS_CREDS
-
-            response = await client.post(
-                "/api/roles/assume",
-                json={"role_id": str(role.id)},
-                cookies=_cookies(session_id),
-            )
-
-        assert response.status_code == 200
-
-        result = await db_session.execute(select(AuditLog).where(AuditLog.action == "role.assume"))
-        log = result.scalar_one()
-        assert log.user_id == user.id
-        assert log.resource_type == "role"
-        assert log.resource_id == str(role.id)
-        assert log.detail["role_name"] == role.role_name
-        assert log.detail["account_id"] == str(account.id)
-
-    async def test_assume_role_unauthenticated_returns_401(self, client):
-        response = await client.post(
-            "/api/roles/assume",
-            json={"role_id": "00000000-0000-0000-0000-000000000000"},
-        )
-        assert response.status_code == 401
-
-    async def test_assume_role_not_found_returns_404(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
-            db_session, groups=["devs"], sub="dev-404"
-        )
-
-        response = await client.post(
-            "/api/roles/assume",
-            json={"role_id": "00000000-0000-0000-0000-000000000000"},
-            cookies=_cookies(session_id),
-        )
-
-        assert response.status_code == 404
-
-
-class TestConsoleAccess:
-    async def test_console_url_success(self, client, db_session):
+class TestFederate:
+    async def test_console_returns_url(self, client, db_session):
+        """Default method=console returns JSON with console_url."""
         user, session_id = await _create_user_with_tokens(
             db_session, groups=["devs"], sub="dev-console"
         )
@@ -868,13 +667,9 @@ class TestConsoleAccess:
         role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
 
         with (
+            patch("backend.routers.roles.aws.assume_role", new_callable=AsyncMock) as mock_assume,
             patch(
-                "backend.routers.roles.aws.assume_role_with_web_identity",
-                new_callable=AsyncMock,
-            ) as mock_assume,
-            patch(
-                "backend.routers.roles.aws.get_console_url",
-                new_callable=AsyncMock,
+                "backend.routers.roles.aws.get_console_url", new_callable=AsyncMock
             ) as mock_console,
         ):
             mock_assume.return_value = FAKE_STS_CREDS
@@ -882,61 +677,66 @@ class TestConsoleAccess:
                 "https://signin.aws.amazon.com/federation?Action=login&SigninToken=abc"
             )
 
-            response = await client.post(
-                "/api/roles/console",
-                json={"role_id": str(role.id)},
+            response = await client.get(
+                f"/api/federate?account_id={account.aws_account_id}&role={role.role_name}",
                 cookies=_cookies(session_id),
             )
 
         assert response.status_code == 200
         data = response.json()
-        console_url = urlparse(data["console_url"])
-        assert console_url.hostname == "signin.aws.amazon.com"
-        assert "expiration" in data
+        assert "console_url" in data
+        assert data["console_url"].startswith("https://signin.aws.amazon.com/federation")
 
-        # Should use console_session_duration, not api_session_duration
         call_kwargs = mock_assume.call_args.kwargs
         assert call_kwargs["session_duration"] == role.console_session_duration
 
-    async def test_console_url_structure(self, client, db_session):
-        """Verify get_console_url is called with correct params."""
+    async def test_cli_returns_credentials(self, client, db_session):
+        """method=cli returns STS credentials."""
         user, session_id = await _create_user_with_tokens(
-            db_session, groups=["devs"], sub="dev-console-structure"
+            db_session, groups=["devs"], sub="dev-cli"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
         account = await _create_active_account(db_session, admin)
-        role = await _create_role_for_assumption(
-            db_session, account, allowed_groups=["devs"], console_session_duration=7200
-        )
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
 
-        with (
-            patch(
-                "backend.routers.roles.aws.assume_role_with_web_identity",
-                new_callable=AsyncMock,
-            ) as mock_assume,
-            patch(
-                "backend.routers.roles.aws.get_console_url",
-                new_callable=AsyncMock,
-            ) as mock_console,
-        ):
+        with patch("backend.routers.roles.aws.assume_role", new_callable=AsyncMock) as mock_assume:
             mock_assume.return_value = FAKE_STS_CREDS
-            mock_console.return_value = "https://signin.aws.amazon.com/federation?Action=login"
 
-            response = await client.post(
-                "/api/roles/console",
-                json={"role_id": str(role.id)},
+            response = await client.get(
+                f"/api/federate?account_id={account.aws_account_id}"
+                f"&role={role.role_name}&method=cli",
                 cookies=_cookies(session_id),
             )
 
         assert response.status_code == 200
-        mock_console.assert_called_once()
-        console_kwargs = mock_console.call_args.kwargs
-        assert console_kwargs["credentials"] == FAKE_STS_CREDS
-        assert console_kwargs["console_session_duration"] == 7200
+        data = response.json()
+        assert "access_key_id" in data
+        assert "secret_access_key" in data
+        assert "session_token" in data
+        assert "expiration" in data
 
-    async def test_console_forbidden_no_access(self, client, db_session):
+        call_kwargs = mock_assume.call_args.kwargs
+        assert call_kwargs["session_duration"] == role.api_session_duration
+        assert call_kwargs["external_id"].startswith("Groundwork-")
+
+    async def test_invalid_method_rejected(self, client, db_session):
+        """Invalid method parameter returns 422."""
         user, session_id = await _create_user_with_tokens(
-            db_session, groups=["finance"], sub="finance-console"
+            db_session, groups=["devs"], sub="dev-invalid-method"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        response = await client.get(
+            f"/api/federate?account_id={account.aws_account_id}&role=SomeRole&method=invalid",
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 422
+
+    async def test_forbidden_no_access(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["finance"], sub="finance-federate"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
         account = await _create_active_account(db_session, admin)
@@ -944,13 +744,26 @@ class TestConsoleAccess:
             db_session, account, allowed_groups=["devs"], allowed_users=[]
         )
 
-        response = await client.post(
-            "/api/roles/console",
-            json={"role_id": str(role.id)},
+        response = await client.get(
+            f"/api/federate?account_id={account.aws_account_id}&role={role.role_name}",
             cookies=_cookies(session_id),
         )
 
         assert response.status_code == 403
+
+    async def test_role_not_found(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-federate-404"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+
+        response = await client.get(
+            f"/api/federate?account_id={account.aws_account_id}&role=NonExistentRole",
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 404
 
     async def test_console_audit_logged(self, client, db_session):
         user, session_id = await _create_user_with_tokens(
@@ -961,31 +774,81 @@ class TestConsoleAccess:
         role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
 
         with (
+            patch("backend.routers.roles.aws.assume_role", new_callable=AsyncMock) as mock_assume,
             patch(
-                "backend.routers.roles.aws.assume_role_with_web_identity",
-                new_callable=AsyncMock,
-            ) as mock_assume,
-            patch(
-                "backend.routers.roles.aws.get_console_url",
-                new_callable=AsyncMock,
+                "backend.routers.roles.aws.get_console_url", new_callable=AsyncMock
             ) as mock_console,
         ):
             mock_assume.return_value = FAKE_STS_CREDS
             mock_console.return_value = "https://signin.aws.amazon.com/federation?Action=login"
 
-            response = await client.post(
-                "/api/roles/console",
-                json={"role_id": str(role.id)},
+            await client.get(
+                f"/api/federate?account_id={account.aws_account_id}&role={role.role_name}",
                 cookies=_cookies(session_id),
             )
 
-        assert response.status_code == 200
-
-        result = await db_session.execute(select(AuditLog).where(AuditLog.action == "role.console"))
+        result = await db_session.execute(
+            select(AuditLog).where(AuditLog.action == "role.federate")
+        )
         log = result.scalar_one()
         assert log.user_id == user.id
-        assert log.resource_type == "role"
-        assert log.detail["role_name"] == role.role_name
+        assert log.detail["method"] == "console"
+
+    async def test_cli_audit_logged(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-cli-audit"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
+
+        with patch("backend.routers.roles.aws.assume_role", new_callable=AsyncMock) as mock_assume:
+            mock_assume.return_value = FAKE_STS_CREDS
+
+            await client.get(
+                f"/api/federate?account_id={account.aws_account_id}"
+                f"&role={role.role_name}&method=cli",
+                cookies=_cookies(session_id),
+            )
+
+        result = await db_session.execute(select(AuditLog).where(AuditLog.action == "role.assume"))
+        log = result.scalar_one()
+        assert log.user_id == user.id
+        assert log.detail["method"] == "cli"
+
+    async def test_unauthenticated_returns_401(self, client):
+        response = await client.get(
+            "/api/federate?account_id=123456789012&role=SomeRole",
+        )
+        assert response.status_code == 401
+
+    async def test_old_assume_endpoint_removed(self, client, db_session):
+        """POST /api/roles/assume should no longer exist."""
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-old-assume"
+        )
+
+        response = await client.post(
+            "/api/roles/assume",
+            json={"role_id": "00000000-0000-0000-0000-000000000000"},
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code in (404, 405)
+
+    async def test_old_console_endpoint_removed(self, client, db_session):
+        """POST /api/roles/console should no longer exist."""
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-old-console"
+        )
+
+        response = await client.post(
+            "/api/roles/console",
+            json={"role_id": "00000000-0000-0000-0000-000000000000"},
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code in (404, 405)
 
 
 # ---------------------------------------------------------------------------
@@ -996,9 +859,9 @@ class TestConsoleAccess:
 class TestRoleStatusGating:
     """Tests for role status lifecycle and operation gating."""
 
-    # -- Assume/Console blocked for non-active roles --
+    # -- Federate blocked for non-active roles (both console and cli methods) --
 
-    async def test_assume_blocked_for_pending_role(self, client, db_session):
+    async def test_federate_blocked_for_pending_role(self, client, db_session):
         user, session_id = await _create_user_with_tokens(
             db_session, groups=["devs"], sub="dev-pending"
         )
@@ -1006,15 +869,30 @@ class TestRoleStatusGating:
         account = await _create_active_account(db_session, admin)
         role = await _create_role_for_assumption(db_session, account, status="pending", role_arn="")
 
-        response = await client.post(
-            "/api/roles/assume",
-            json={"role_id": str(role.id)},
+        response = await client.get(
+            f"/api/federate?account_id={account.aws_account_id}"
+            f"&role={role.role_name}&method=cli",
             cookies=_cookies(session_id),
         )
         assert response.status_code == 400
         assert "not available" in response.json()["detail"]
 
-    async def test_assume_blocked_for_failed_role(self, client, db_session):
+    async def test_federate_console_blocked_for_pending_role(self, client, db_session):
+        user, session_id = await _create_user_with_tokens(
+            db_session, groups=["devs"], sub="dev-pending-console"
+        )
+        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
+        account = await _create_active_account(db_session, admin)
+        role = await _create_role_for_assumption(db_session, account, status="pending", role_arn="")
+
+        response = await client.get(
+            f"/api/federate?account_id={account.aws_account_id}&role={role.role_name}",
+            cookies=_cookies(session_id),
+        )
+        assert response.status_code == 400
+        assert "not available" in response.json()["detail"]
+
+    async def test_federate_blocked_for_failed_role(self, client, db_session):
         user, session_id = await _create_user_with_tokens(
             db_session, groups=["devs"], sub="dev-failed"
         )
@@ -1024,14 +902,14 @@ class TestRoleStatusGating:
             db_session, account, status="failed", error_message="IAM error"
         )
 
-        response = await client.post(
-            "/api/roles/assume",
-            json={"role_id": str(role.id)},
+        response = await client.get(
+            f"/api/federate?account_id={account.aws_account_id}"
+            f"&role={role.role_name}&method=cli",
             cookies=_cookies(session_id),
         )
         assert response.status_code == 400
 
-    async def test_assume_blocked_for_updating_role(self, client, db_session):
+    async def test_federate_blocked_for_updating_role(self, client, db_session):
         user, session_id = await _create_user_with_tokens(
             db_session, groups=["devs"], sub="dev-updating"
         )
@@ -1039,14 +917,14 @@ class TestRoleStatusGating:
         account = await _create_active_account(db_session, admin)
         role = await _create_role_for_assumption(db_session, account, status="updating")
 
-        response = await client.post(
-            "/api/roles/assume",
-            json={"role_id": str(role.id)},
+        response = await client.get(
+            f"/api/federate?account_id={account.aws_account_id}"
+            f"&role={role.role_name}&method=cli",
             cookies=_cookies(session_id),
         )
         assert response.status_code == 400
 
-    async def test_assume_blocked_for_deleting_role(self, client, db_session):
+    async def test_federate_blocked_for_deleting_role(self, client, db_session):
         user, session_id = await _create_user_with_tokens(
             db_session, groups=["devs"], sub="dev-deleting"
         )
@@ -1054,24 +932,9 @@ class TestRoleStatusGating:
         account = await _create_active_account(db_session, admin)
         role = await _create_role_for_assumption(db_session, account, status="deleting")
 
-        response = await client.post(
-            "/api/roles/assume",
-            json={"role_id": str(role.id)},
-            cookies=_cookies(session_id),
-        )
-        assert response.status_code == 400
-
-    async def test_console_blocked_for_pending_role(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
-            db_session, groups=["devs"], sub="dev-console-pending"
-        )
-        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
-        account = await _create_active_account(db_session, admin)
-        role = await _create_role_for_assumption(db_session, account, status="pending", role_arn="")
-
-        response = await client.post(
-            "/api/roles/console",
-            json={"role_id": str(role.id)},
+        response = await client.get(
+            f"/api/federate?account_id={account.aws_account_id}"
+            f"&role={role.role_name}&method=cli",
             cookies=_cookies(session_id),
         )
         assert response.status_code == 400

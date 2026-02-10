@@ -133,17 +133,8 @@ class RoleResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class AssumeRoleRequest(BaseModel):
-    role_id: UUID
-
-
 class AssumeRoleResponse(BaseModel):
     access_key_id: str
     secret_access_key: str
     session_token: str
-    expiration: datetime
-
-
-class ConsoleUrlResponse(BaseModel):
-    console_url: str
     expiration: datetime
