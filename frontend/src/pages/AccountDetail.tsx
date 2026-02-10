@@ -331,7 +331,14 @@ export default function AccountDetail() {
                   {role.error_message && (
                     <p className="text-xs text-destructive">{role.error_message}</p>
                   )}
-                  <p className="text-xs text-muted-foreground">
+                  <p
+                    className="text-xs text-muted-foreground cursor-default"
+                    title={
+                      role.last_used_at
+                        ? new Date(role.last_used_at).toLocaleString()
+                        : undefined
+                    }
+                  >
                     {role.last_used_at
                       ? `Last used ${relativeTime(role.last_used_at)}`
                       : 'Never used'}
