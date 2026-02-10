@@ -457,21 +457,36 @@ VALID_ACCOUNT_COLORS = frozenset(
 )
 
 
-async def _uxc_request(session, method: str, body: str | None = None) -> dict | None:
-    """Make a SigV4-signed request to the UXC service.
+async def _get_uxc_credentials(aws_account_id: str) -> Credentials:
+    """Get STS credentials for UXC API calls in a member account.
 
-    ``session`` is an aioboto3.Session with credentials for the target account.
+    Returns botocore Credentials directly from the STS AssumeRole response,
+    avoiding aioboto3 session credential resolution (which is async and
+    incompatible with botocore's sync SigV4Auth).
     """
-    creds = session.get_credentials().get_frozen_credentials()
-    botocore_creds = Credentials(
-        access_key=creds.access_key,
-        secret_key=creds.secret_key,
-        token=creds.token,
+    session = get_session()
+    role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
+    async with session.client("sts") as sts:
+        assumed = await sts.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName="GroundworkUXC",
+        )
+    raw = assumed["Credentials"]
+    return Credentials(
+        access_key=raw["AccessKeyId"],
+        secret_key=raw["SecretAccessKey"],
+        token=raw["SessionToken"],
     )
 
+
+async def _uxc_request(creds: Credentials, method: str, body: str | None = None) -> dict | None:
+    """Make a SigV4-signed request to the UXC service.
+
+    ``creds`` is a botocore Credentials object for the target account.
+    """
     headers = {"Content-Type": "application/json"}
     aws_request = AWSRequest(method=method, url=UXC_ENDPOINT, data=body, headers=headers)
-    SigV4Auth(botocore_creds, UXC_SERVICE, UXC_REGION).add_auth(aws_request)
+    SigV4Auth(creds, UXC_SERVICE, UXC_REGION).add_auth(aws_request)
 
     async with httpx.AsyncClient() as client:
         response = await client.request(
@@ -490,24 +505,24 @@ async def get_account_color(aws_account_id: str) -> str | None:
     Returns the color string (e.g. "red", "green"), or None if no color
     is set (color is "none").
     """
-    target_session = await assume_groundwork_admin(aws_account_id)
-    result = await _uxc_request(target_session, "GET")
+    creds = await _get_uxc_credentials(aws_account_id)
+    result = await _uxc_request(creds, "GET")
     color = result.get("color") if result else None
     return None if color == "none" else color
 
 
 async def set_account_color(aws_account_id: str, color: str) -> None:
     """Set the console color for a member account."""
-    target_session = await assume_groundwork_admin(aws_account_id)
+    creds = await _get_uxc_credentials(aws_account_id)
     body = json.dumps({"color": color})
-    await _uxc_request(target_session, "PUT", body)
+    await _uxc_request(creds, "PUT", body)
     logger.info("Set account color '%s' for account %s", color, aws_account_id)
 
 
 async def delete_account_color(aws_account_id: str) -> None:
     """Delete the console color for a member account."""
-    target_session = await assume_groundwork_admin(aws_account_id)
-    await _uxc_request(target_session, "DELETE")
+    creds = await _get_uxc_credentials(aws_account_id)
+    await _uxc_request(creds, "DELETE")
     logger.info("Deleted account color from account %s", aws_account_id)
 
 

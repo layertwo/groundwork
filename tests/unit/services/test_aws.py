@@ -5,6 +5,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from botocore.credentials import Credentials
 
 from backend.config import settings
 from backend.services import aws
@@ -868,29 +869,17 @@ class TestDeleteAccountAlias:
 
 class TestGetAccountColor:
     async def test_returns_color_when_set(self):
+        fake_creds = Credentials(access_key="AKIAEXAMPLE", secret_key="secret", token="token")
         mock_response = AsyncMock()
         mock_response.status_code = 200
         mock_response.content = b'{"color": "red"}'
-        mock_response.json.return_value = {"color": "red"}
 
         with (
             patch.object(
-                aws,
-                "assume_groundwork_admin",
-                new_callable=AsyncMock,
-            ) as mock_assume,
+                aws, "_get_uxc_credentials", new_callable=AsyncMock, return_value=fake_creds
+            ),
             patch("backend.services.aws.httpx.AsyncClient") as mock_httpx_cls,
         ):
-            mock_session = MagicMock()
-            mock_creds = MagicMock()
-            mock_creds.access_key = "AKIAEXAMPLE"
-            mock_creds.secret_key = "secret"
-            mock_creds.token = "token"
-            mock_session.get_credentials.return_value.get_frozen_credentials.return_value = (
-                mock_creds
-            )
-            mock_assume.return_value = mock_session
-
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -901,33 +890,20 @@ class TestGetAccountColor:
 
         assert result == "red"
         mock_client.request.assert_called_once()
-        call_kwargs = mock_client.request.call_args
-        assert call_kwargs[0][0] == "GET"
+        assert mock_client.request.call_args[0][0] == "GET"
 
     async def test_returns_none_when_no_color(self):
+        fake_creds = Credentials(access_key="AKIAEXAMPLE", secret_key="secret", token="token")
         mock_response = AsyncMock()
         mock_response.status_code = 200
         mock_response.content = b'{"color": "none"}'
-        mock_response.json.return_value = {"color": "none"}
 
         with (
             patch.object(
-                aws,
-                "assume_groundwork_admin",
-                new_callable=AsyncMock,
-            ) as mock_assume,
+                aws, "_get_uxc_credentials", new_callable=AsyncMock, return_value=fake_creds
+            ),
             patch("backend.services.aws.httpx.AsyncClient") as mock_httpx_cls,
         ):
-            mock_session = MagicMock()
-            mock_creds = MagicMock()
-            mock_creds.access_key = "AKIAEXAMPLE"
-            mock_creds.secret_key = "secret"
-            mock_creds.token = "token"
-            mock_session.get_credentials.return_value.get_frozen_credentials.return_value = (
-                mock_creds
-            )
-            mock_assume.return_value = mock_session
-
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -941,30 +917,18 @@ class TestGetAccountColor:
 
 class TestSetAccountColor:
     async def test_sets_color(self):
+        fake_creds = Credentials(access_key="AKIAEXAMPLE", secret_key="secret", token="token")
         mock_response = AsyncMock()
         mock_response.status_code = 200
         mock_response.content = b'{"color": "green"}'
-        mock_response.json.return_value = {"color": "green"}
         mock_response.raise_for_status = MagicMock()
 
         with (
             patch.object(
-                aws,
-                "assume_groundwork_admin",
-                new_callable=AsyncMock,
-            ) as mock_assume,
+                aws, "_get_uxc_credentials", new_callable=AsyncMock, return_value=fake_creds
+            ),
             patch("backend.services.aws.httpx.AsyncClient") as mock_httpx_cls,
         ):
-            mock_session = MagicMock()
-            mock_creds = MagicMock()
-            mock_creds.access_key = "AKIAEXAMPLE"
-            mock_creds.secret_key = "secret"
-            mock_creds.token = "token"
-            mock_session.get_credentials.return_value.get_frozen_credentials.return_value = (
-                mock_creds
-            )
-            mock_assume.return_value = mock_session
-
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -974,12 +938,12 @@ class TestSetAccountColor:
             await aws.set_account_color("123456789012", "green")
 
         mock_client.request.assert_called_once()
-        call_kwargs = mock_client.request.call_args
-        assert call_kwargs[0][0] == "PUT"
+        assert mock_client.request.call_args[0][0] == "PUT"
 
 
 class TestDeleteAccountColor:
     async def test_deletes_color(self):
+        fake_creds = Credentials(access_key="AKIAEXAMPLE", secret_key="secret", token="token")
         mock_response = AsyncMock()
         mock_response.status_code = 200
         mock_response.content = b""
@@ -987,22 +951,10 @@ class TestDeleteAccountColor:
 
         with (
             patch.object(
-                aws,
-                "assume_groundwork_admin",
-                new_callable=AsyncMock,
-            ) as mock_assume,
+                aws, "_get_uxc_credentials", new_callable=AsyncMock, return_value=fake_creds
+            ),
             patch("backend.services.aws.httpx.AsyncClient") as mock_httpx_cls,
         ):
-            mock_session = MagicMock()
-            mock_creds = MagicMock()
-            mock_creds.access_key = "AKIAEXAMPLE"
-            mock_creds.secret_key = "secret"
-            mock_creds.token = "token"
-            mock_session.get_credentials.return_value.get_frozen_credentials.return_value = (
-                mock_creds
-            )
-            mock_assume.return_value = mock_session
-
             mock_client = AsyncMock()
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -1012,8 +964,7 @@ class TestDeleteAccountColor:
             await aws.delete_account_color("123456789012")
 
         mock_client.request.assert_called_once()
-        call_kwargs = mock_client.request.call_args
-        assert call_kwargs[0][0] == "DELETE"
+        assert mock_client.request.call_args[0][0] == "DELETE"
 
 
 class TestBuildBootstrapTemplatePermissions:
