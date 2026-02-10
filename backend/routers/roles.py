@@ -3,6 +3,7 @@ import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -11,20 +12,17 @@ from backend.config import settings
 from backend.database import get_db
 from backend.dependencies.auth import (
     get_current_admin,
-    get_current_session,
     get_current_user,
-    get_fresh_id_token,
 )
 from backend.exceptions import ConflictError, ForbiddenError, GroundworkError, NotFoundError
 from backend.models.account import Account
 from backend.models.job import Job
 from backend.models.role import Role
 from backend.models.role_template import RoleTemplate
-from backend.models.user import Session, User
+from backend.models.user import User
 from backend.schemas.role import (
     AssumeRoleRequest,
     AssumeRoleResponse,
-    ConsoleUrlResponse,
     RoleCreate,
     RoleResponse,
     RoleUpdate,
@@ -359,6 +357,36 @@ async def _load_role_for_assumption(
     return role
 
 
+async def _load_role_for_federation(
+    account_id: UUID,
+    role_name: str,
+    user: User,
+    db: AsyncSession,
+) -> Role:
+    """Load a role by account_id + role_name and verify access for federation."""
+    result = await db.execute(
+        select(Role)
+        .options(joinedload(Role.account))
+        .where(Role.account_id == account_id, Role.role_name == role_name)
+    )
+    role = result.scalar_one_or_none()
+    if role is None:
+        raise NotFoundError("Role not found")
+
+    if role.status != "active":
+        raise GroundworkError("Role is not available for assumption", status_code=400)
+
+    user_groups = set(user.groups or [])
+    role_groups = set(role.allowed_groups or [])
+    if not (user_groups & role_groups) and user.sub not in (role.allowed_users or []):
+        raise ForbiddenError("You do not have access to assume this role")
+
+    if role.account.status != "active":
+        raise GroundworkError("Account is not active", status_code=400)
+
+    return role
+
+
 @router.post("/api/roles/assume", response_model=AssumeRoleResponse)
 async def assume_role(
     body: AssumeRoleRequest,
@@ -399,50 +427,46 @@ async def assume_role(
     )
 
 
-@router.post("/api/roles/console", response_model=ConsoleUrlResponse)
-async def console_access(
-    body: AssumeRoleRequest,
+@router.get("/api/federate")
+async def federate(
+    account_id: UUID,
+    role: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    session: Session = Depends(get_current_session),
+    user: User = Depends(get_current_user),
 ):
-    user = session.user
-    role = await _load_role_for_assumption(body.role_id, user, db)
+    loaded_role = await _load_role_for_federation(account_id, role, user, db)
 
-    id_token = await get_fresh_id_token(session, db)
-
-    credentials = await aws.assume_role_with_web_identity(
-        role_arn=role.role_arn,
-        id_token=id_token,
-        session_duration=role.console_session_duration,
+    external_id = aws.compute_external_id(str(loaded_role.id), str(loaded_role.account_id))
+    credentials = await aws.assume_role(
+        role_arn=loaded_role.role_arn,
         session_name=_sanitize_session_name(user.email),
+        external_id=external_id,
+        session_duration=loaded_role.console_session_duration,
     )
 
     console_url = await aws.get_console_url(
         credentials=credentials,
-        console_session_duration=role.console_session_duration,
+        console_session_duration=loaded_role.console_session_duration,
         issuer=settings.app_url,
     )
 
     await log_event(
         db,
-        action="role.console",
+        action="role.federate",
         user_id=user.id,
         resource_type="role",
-        resource_id=str(role.id),
+        resource_id=str(loaded_role.id),
         detail={
-            "role_name": role.role_name,
-            "account_id": str(role.account_id),
-            "role_arn": role.role_arn,
+            "role_name": loaded_role.role_name,
+            "account_id": str(loaded_role.account_id),
+            "role_arn": loaded_role.role_arn,
         },
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
 
-    return ConsoleUrlResponse(
-        console_url=console_url,
-        expiration=credentials["expiration"],
-    )
+    return RedirectResponse(url=console_url, status_code=302)
 
 
 # ---------------------------------------------------------------------------
