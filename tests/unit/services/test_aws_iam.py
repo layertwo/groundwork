@@ -5,6 +5,9 @@ import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from botocore.exceptions import ClientError
+
 from backend.config import settings
 from backend.services import aws
 from tests.fixtures.aws import _stubbed_session, create_stubbed_client
@@ -196,3 +199,68 @@ class TestDeleteIamRole:
 
         mock_assume.assert_called_once_with(AWS_ACCOUNT_ID)
         iam_stubber.assert_no_pending_responses()
+
+
+class TestAssumeRole:
+    async def test_assume_role_returns_credentials(self):
+        _, sts_stubber = await create_stubbed_client("sts")
+        sts_stubber.add_response(
+            "assume_role",
+            {
+                "Credentials": {
+                    "AccessKeyId": "ASIA1234567890EXAMPL",
+                    "SecretAccessKey": "examplesecretkey12345678901234567890abcd",
+                    "SessionToken": "examplesessiontoken12345",
+                    "Expiration": datetime(2025, 1, 1),
+                },
+                "AssumedRoleUser": {
+                    "AssumedRoleId": "AROAEXAMPLE:user@example.com",
+                    "Arn": "arn:aws:sts::123456789012:assumed-role/TestRole/user@example.com",
+                },
+            },
+            expected_params={
+                "RoleArn": "arn:aws:iam::123456789012:role/TestRole",
+                "RoleSessionName": "user@example.com",
+                "ExternalId": "Groundwork-abc123",
+                "DurationSeconds": 900,
+            },
+        )
+        sts_stubber.activate()
+
+        gw_session = _stubbed_session({"sts": sts_stubber})
+
+        with patch.object(aws, "get_session", return_value=gw_session):
+            creds = await aws.assume_role(
+                role_arn="arn:aws:iam::123456789012:role/TestRole",
+                session_name="user@example.com",
+                external_id="Groundwork-abc123",
+                session_duration=900,
+            )
+
+        assert creds["access_key_id"] == "ASIA1234567890EXAMPL"
+        assert creds["secret_access_key"] == "examplesecretkey12345678901234567890abcd"
+        assert creds["session_token"] == "examplesessiontoken12345"
+        sts_stubber.assert_no_pending_responses()
+
+    async def test_assume_role_access_denied_raises_forbidden(self):
+        from backend.exceptions import ForbiddenError
+
+        mock_session = MagicMock()
+        mock_sts = AsyncMock()
+        mock_sts.assume_role.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "denied"}}, "AssumeRole"
+        )
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_sts)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+        mock_session.client.return_value = mock_cm
+
+        with patch.object(aws, "get_session", return_value=mock_session):
+            with pytest.raises(ForbiddenError):
+                await aws.assume_role(
+                    role_arn="arn:aws:iam::123456789012:role/TestRole",
+                    session_name="user@example.com",
+                    external_id="Groundwork-abc123",
+                    session_duration=900,
+                )

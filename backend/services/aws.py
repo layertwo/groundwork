@@ -466,48 +466,43 @@ async def delete_iam_role(aws_account_id: str, role_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def assume_role_with_web_identity(
+async def assume_role(
     role_arn: str,
-    id_token: str,
-    session_duration: int,
     session_name: str,
+    external_id: str,
+    session_duration: int,
 ) -> STSCredentials:
-    """Assume an IAM role using an OIDC id_token via STS.
+    """Assume an IAM role from the Groundwork account via STS.
 
     Returns STSCredentials with access_key_id, secret_access_key,
     session_token, and expiration.
 
     Raises :class:`~backend.exceptions.ForbiddenError` when STS denies the
-    assumption (trust policy mismatch, expired token, etc.).
+    assumption (trust policy mismatch, bad External ID, etc.).
     """
     from backend.exceptions import ForbiddenError
 
     session = get_session()
     try:
         async with session.client("sts") as sts:
-            resp = await sts.assume_role_with_web_identity(
+            resp = await sts.assume_role(
                 RoleArn=role_arn,
                 RoleSessionName=session_name,
-                WebIdentityToken=id_token,
+                ExternalId=external_id,
                 DurationSeconds=session_duration,
             )
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         if code in ("AccessDenied", "AccessDeniedException"):
             logger.warning(
-                "STS AssumeRoleWithWebIdentity denied for role %s session %s: %s",
+                "STS AssumeRole denied for role %s session %s: %s",
                 role_arn,
                 session_name,
                 exc.response["Error"].get("Message", ""),
             )
             raise ForbiddenError(
                 "Role assumption denied — check that the role's trust policy "
-                "allows your identity provider, audience, and user/group claims"
-            ) from exc
-        if code == "ExpiredTokenException":
-            logger.warning("STS denied: id_token expired for role %s", role_arn)
-            raise ForbiddenError(
-                "Role assumption denied — your session token has expired, please re-login"
+                "and External ID are correctly configured"
             ) from exc
         raise
     creds = resp["Credentials"]
