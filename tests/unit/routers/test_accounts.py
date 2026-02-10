@@ -260,10 +260,7 @@ class TestUpdateAccountAlias:
         db_session.add(account)
         await db_session.flush()
 
-        with (
-            patch("backend.routers.accounts.aws.set_account_alias", new_callable=AsyncMock),
-            patch("backend.routers.accounts.account_metadata.update_cached_alias"),
-        ):
+        with patch("backend.routers.accounts.aws.set_account_alias", new_callable=AsyncMock):
             response = await client.patch(
                 f"/api/accounts/{account.id}",
                 json={"alias": "my-alias"},
@@ -271,6 +268,7 @@ class TestUpdateAccountAlias:
             )
 
         assert response.status_code == 200
+        assert response.json()["alias"] == "my-alias"
 
     async def test_set_alias_requires_active_account(self, client, db_session):
         admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
@@ -305,19 +303,12 @@ class TestUpdateAccountAlias:
             created_by=admin.id,
             status="active",
             aws_account_id="222222222222",
+            alias="old-alias",
         )
         db_session.add(account)
         await db_session.flush()
 
-        with (
-            patch(
-                "backend.routers.accounts.account_metadata.get_account_metadata",
-                new_callable=AsyncMock,
-                return_value={"alias": "old-alias", "color": None, "fetched_at": None},
-            ),
-            patch("backend.routers.accounts.aws.delete_account_alias", new_callable=AsyncMock),
-            patch("backend.routers.accounts.account_metadata.update_cached_alias"),
-        ):
+        with patch("backend.routers.accounts.aws.delete_account_alias", new_callable=AsyncMock):
             response = await client.patch(
                 f"/api/accounts/{account.id}",
                 json={"alias": ""},
@@ -325,6 +316,7 @@ class TestUpdateAccountAlias:
             )
 
         assert response.status_code == 200
+        assert response.json()["alias"] is None
 
 
 class TestUpdateAccountColor:
@@ -343,10 +335,7 @@ class TestUpdateAccountColor:
         db_session.add(account)
         await db_session.flush()
 
-        with (
-            patch("backend.routers.accounts.aws.set_account_color", new_callable=AsyncMock),
-            patch("backend.routers.accounts.account_metadata.update_cached_color"),
-        ):
+        with patch("backend.routers.accounts.aws.set_account_color", new_callable=AsyncMock):
             response = await client.patch(
                 f"/api/accounts/{account.id}",
                 json={"color": "red"},
@@ -354,6 +343,7 @@ class TestUpdateAccountColor:
             )
 
         assert response.status_code == 200
+        assert response.json()["color"] == "red"
 
     async def test_delete_color_with_none(self, client, db_session):
         admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
@@ -366,14 +356,12 @@ class TestUpdateAccountColor:
             created_by=admin.id,
             status="active",
             aws_account_id="444444444444",
+            color="red",
         )
         db_session.add(account)
         await db_session.flush()
 
-        with (
-            patch("backend.routers.accounts.aws.delete_account_color", new_callable=AsyncMock),
-            patch("backend.routers.accounts.account_metadata.update_cached_color"),
-        ):
+        with patch("backend.routers.accounts.aws.delete_account_color", new_callable=AsyncMock):
             response = await client.patch(
                 f"/api/accounts/{account.id}",
                 json={"color": "none"},
@@ -381,6 +369,7 @@ class TestUpdateAccountColor:
             )
 
         assert response.status_code == 200
+        assert response.json()["color"] is None
 
 
 class TestAccountResponseIncludesMetadata:
@@ -395,19 +384,16 @@ class TestAccountResponseIncludesMetadata:
             created_by=admin.id,
             status="active",
             aws_account_id="555555555555",
+            alias="prod",
+            color="red",
         )
         db_session.add(account)
         await db_session.flush()
 
-        with patch(
-            "backend.routers.accounts.account_metadata.get_account_metadata",
-            new_callable=AsyncMock,
-            return_value={"alias": "prod", "color": "red", "fetched_at": None},
-        ):
-            response = await client.get(
-                f"/api/accounts/{account.id}",
-                cookies=_cookies(session_id),
-            )
+        response = await client.get(
+            f"/api/accounts/{account.id}",
+            cookies=_cookies(session_id),
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -425,21 +411,16 @@ class TestAccountResponseIncludesMetadata:
             created_by=admin.id,
             status="active",
             aws_account_id="666666666666",
+            alias="staging",
+            color="yellow",
         )
         db_session.add(account)
         await db_session.flush()
 
-        with patch(
-            "backend.routers.accounts.account_metadata.get_all_account_metadata",
-            new_callable=AsyncMock,
-            return_value={
-                "666666666666": {"alias": "staging", "color": "yellow", "fetched_at": None}
-            },
-        ):
-            response = await client.get(
-                "/api/accounts",
-                cookies=_cookies(session_id),
-            )
+        response = await client.get(
+            "/api/accounts",
+            cookies=_cookies(session_id),
+        )
 
         assert response.status_code == 200
         data = response.json()

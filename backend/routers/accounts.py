@@ -1,7 +1,6 @@
 """Account management endpoints."""
 
 import asyncio
-import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -16,11 +15,9 @@ from backend.models.account import Account
 from backend.models.job import Job
 from backend.models.user import User
 from backend.schemas.account import AccountCreate, AccountResponse, AccountUpdate
-from backend.services import account_metadata, aws
+from backend.services import aws
 from backend.services.audit import log_event
 from backend.services.jobs import execute_job
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -31,26 +28,7 @@ async def list_accounts(
     user: User = Depends(get_current_user),
 ):
     result = await db.execute(select(Account).order_by(Account.created_at.desc()))
-    accounts = list(result.scalars().all())
-
-    # Fetch metadata for all accounts with AWS account IDs
-    aws_ids = [a.aws_account_id for a in accounts if a.aws_account_id]
-    try:
-        metadata = await account_metadata.get_all_account_metadata(aws_ids) if aws_ids else {}
-    except Exception:
-        logger.warning("Failed to fetch account metadata for list", exc_info=True)
-        metadata = {}
-
-    responses = []
-    for acct in accounts:
-        resp = AccountResponse.model_validate(acct)
-        meta = metadata.get(acct.aws_account_id) if acct.aws_account_id else None
-        if meta:
-            resp.alias = meta.get("alias")
-            resp.color = meta.get("color")
-        responses.append(resp)
-
-    return responses
+    return list(result.scalars().all())
 
 
 @router.post("", response_model=AccountResponse, status_code=201)
@@ -121,22 +99,7 @@ async def get_account(
     account = result.scalar_one_or_none()
     if account is None:
         raise NotFoundError("Account not found")
-
-    resp = AccountResponse.model_validate(account)
-
-    if account.aws_account_id:
-        try:
-            meta = await account_metadata.get_account_metadata(account.aws_account_id)
-            resp.alias = meta.get("alias")
-            resp.color = meta.get("color")
-        except Exception:
-            logger.warning(
-                "Failed to fetch metadata for account %s",
-                account.aws_account_id,
-                exc_info=True,
-            )
-
-    return resp
+    return account
 
 
 @router.patch("/{account_id}", response_model=AccountResponse)
@@ -173,24 +136,21 @@ async def update_account(
     # Handle alias update via AWS IAM
     if alias_update is not None:
         if alias_update == "":
-            # Delete alias — need to know current alias first
-            current_meta = await account_metadata.get_account_metadata(account.aws_account_id)
-            current_alias = current_meta.get("alias")
-            if current_alias:
-                await aws.delete_account_alias(account.aws_account_id, current_alias)
-            account_metadata.update_cached_alias(account.aws_account_id, None)
+            if account.alias:
+                await aws.delete_account_alias(account.aws_account_id, account.alias)
+            account.alias = None
         else:
             await aws.set_account_alias(account.aws_account_id, alias_update)
-            account_metadata.update_cached_alias(account.aws_account_id, alias_update)
+            account.alias = alias_update
 
     # Handle color update via AWS UXC
     if color_update is not None:
         if color_update in ("", "none"):
             await aws.delete_account_color(account.aws_account_id)
-            account_metadata.update_cached_color(account.aws_account_id, None)
+            account.color = None
         else:
             await aws.set_account_color(account.aws_account_id, color_update)
-            account_metadata.update_cached_color(account.aws_account_id, color_update)
+            account.color = color_update
 
     db.add(account)
 
@@ -208,18 +168,4 @@ async def update_account(
     await db.flush()
     await db.refresh(account)
 
-    # Build response with metadata
-    resp = AccountResponse.model_validate(account)
-    if account.aws_account_id:
-        try:
-            meta = await account_metadata.get_account_metadata(account.aws_account_id)
-            resp.alias = meta.get("alias")
-            resp.color = meta.get("color")
-        except Exception:
-            logger.warning(
-                "Failed to fetch metadata for account %s",
-                account.aws_account_id,
-                exc_info=True,
-            )
-
-    return resp
+    return account
