@@ -49,6 +49,7 @@ import {
   deleteRole,
   createRole,
   getRoleTemplates,
+  fixDrift,
 } from '@/api/roles'
 import { ApiError } from '@/api/client'
 import { AWS_COLORS, AWS_COLOR_NAMES, awsColorLabel } from '@/lib/aws-colors'
@@ -64,6 +65,7 @@ function statusVariant(status: string) {
     case 'completed':
       return 'default' as const
     case 'failed':
+    case 'drifted':
       return 'destructive' as const
     default:
       return 'secondary' as const
@@ -592,6 +594,25 @@ export default function AccountDetail() {
                       >
                         Edit
                       </Button>
+                      {role.status === 'drifted' && (
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={async () => {
+                            try {
+                              await fixDrift(id!, role.id)
+                              refetchRoles()
+                              toast.success('Drift fix started')
+                            } catch (err) {
+                              toast.error(
+                                err instanceof ApiError ? err.detail : 'Failed to fix drift'
+                              )
+                            }
+                          }}
+                        >
+                          Fix Drift
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="xs"
