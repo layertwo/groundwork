@@ -444,6 +444,43 @@ async def delete_account_alias(aws_account_id: str, alias: str) -> None:
     logger.info("Deleted account alias '%s' from account %s", alias, aws_account_id)
 
 
+async def get_iam_role_metadata(aws_account_id: str, role_name: str) -> dict:
+    """Get current IAM role metadata from a member account.
+
+    Returns dict with:
+    - exists: bool
+    - max_session_duration: int | None
+    - attached_policy_arns: list[str]
+    - last_used: datetime | None
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+    async with target_session.client("iam") as iam:
+        try:
+            role_resp = await iam.get_role(RoleName=role_name)
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "NoSuchEntity":
+                return {
+                    "exists": False,
+                    "max_session_duration": None,
+                    "attached_policy_arns": [],
+                    "last_used": None,
+                }
+            raise
+
+        role_data = role_resp["Role"]
+        last_used = role_data.get("RoleLastUsed", {}).get("LastUsedDate")
+
+        policies_resp = await iam.list_attached_role_policies(RoleName=role_name)
+        policy_arns = [p["PolicyArn"] for p in policies_resp.get("AttachedPolicies", [])]
+
+        return {
+            "exists": True,
+            "max_session_duration": role_data.get("MaxSessionDuration"),
+            "attached_policy_arns": sorted(policy_arns),
+            "last_used": last_used,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Account color management (UXC service — no boto3 support)
 # ---------------------------------------------------------------------------

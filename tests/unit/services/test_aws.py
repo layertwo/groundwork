@@ -967,6 +967,80 @@ class TestDeleteAccountColor:
         assert mock_client.request.call_args[0][0] == "DELETE"
 
 
+class TestGetIamRoleMetadata:
+    async def test_returns_metadata_for_existing_role(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "get_role",
+            {
+                "Role": {
+                    "RoleName": "TestRole",
+                    "Arn": "arn:aws:iam::123456789012:role/TestRole",
+                    "MaxSessionDuration": 3600,
+                    "RoleLastUsed": {
+                        "LastUsedDate": datetime(2025, 6, 15, 12, 0, 0),
+                    },
+                    "Path": "/",
+                    "RoleId": "AROAEXAMPLEID1234",
+                    "CreateDate": datetime(2025, 1, 1),
+                    "AssumeRolePolicyDocument": "{}",
+                },
+            },
+            expected_params={"RoleName": "TestRole"},
+        )
+        iam_stubber.add_response(
+            "list_attached_role_policies",
+            {
+                "AttachedPolicies": [
+                    {
+                        "PolicyName": "ReadOnly",
+                        "PolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+                    },
+                ],
+                "IsTruncated": False,
+            },
+            expected_params={"RoleName": "TestRole"},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            result = await aws.get_iam_role_metadata("123456789012", "TestRole")
+
+        assert result["exists"] is True
+        assert result["max_session_duration"] == 3600
+        assert result["attached_policy_arns"] == ["arn:aws:iam::aws:policy/ReadOnlyAccess"]
+        assert result["last_used"] == datetime(2025, 6, 15, 12, 0, 0)
+        iam_stubber.assert_no_pending_responses()
+
+    async def test_returns_not_exists_for_missing_role(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_client_error(
+            "get_role",
+            service_error_code="NoSuchEntity",
+            service_message="Role not found",
+            expected_params={"RoleName": "MissingRole"},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            result = await aws.get_iam_role_metadata("123456789012", "MissingRole")
+
+        assert result["exists"] is False
+        assert result["max_session_duration"] is None
+        assert result["attached_policy_arns"] == []
+        assert result["last_used"] is None
+
+
 class TestBuildBootstrapTemplatePermissions:
     def test_template_includes_admin_access_policy(self):
         template_json = aws._build_bootstrap_template("111111111111")
