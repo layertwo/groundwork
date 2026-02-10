@@ -9,7 +9,6 @@ from aiobotocore.stub import AioStubber
 
 FAKE_ACCOUNT_ID = "123456789012"
 FAKE_REQUEST_ID = "car-abc123def456"
-FAKE_OIDC_ARN = "arn:aws:iam::123456789012:oidc-provider/example.com"
 FAKE_ADMIN_ROLE_ARN = "arn:aws:iam::123456789012:role/GroundworkAdmin-DO-NOT-DELETE"
 
 
@@ -76,7 +75,6 @@ def mock_aws_move_account_to_ou():
 def mock_aws_bootstrap_account():
     with patch("backend.services.aws.bootstrap_account", new_callable=AsyncMock) as m:
         m.return_value = {
-            "oidc_provider_arn": FAKE_OIDC_ARN,
             "admin_role_arn": FAKE_ADMIN_ROLE_ARN,
         }
         yield m

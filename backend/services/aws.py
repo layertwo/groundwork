@@ -186,7 +186,7 @@ async def bootstrap_account(aws_account_id: str, ou_id: str | None = None) -> di
     instance is deployed to the target account. If the instance is not
     found and ou_id is provided, triggers a manual deployment.
 
-    Returns dict with oidc_provider_arn and admin_role_arn.
+    Returns dict with admin_role_arn.
     """
     await ensure_bootstrap_stackset()
 

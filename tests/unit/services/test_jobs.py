@@ -75,7 +75,6 @@ class TestProvisionJobSuccess:
                 "backend.services.jobs.aws.bootstrap_account",
                 new_callable=AsyncMock,
                 return_value={
-                    "oidc_provider_arn": "arn:aws:iam::123456789012:oidc-provider/ex",
                     "admin_role_arn": "arn:aws:iam::123456789012:role/GWAdmin",
                 },
             ) as mock_bootstrap,
@@ -88,7 +87,6 @@ class TestProvisionJobSuccess:
 
         assert account.status == "active"
         assert account.aws_account_id == "123456789012"
-        assert account.oidc_provider_arn is not None
         assert job.status == "completed"
         assert job.completed_at is not None
         assert job.result["aws_account_id"] == "123456789012"
@@ -206,8 +204,8 @@ class TestProvisionJobFailure:
 
 
 class TestBootstrapJobSuccess:
-    async def test_bootstrap_sets_account_active_with_oidc_arn(self, db_session):
-        """Successful bootstrap marks account active and sets oidc_provider_arn."""
+    async def test_bootstrap_sets_account_active(self, db_session):
+        """Successful bootstrap marks account active."""
         user = await _create_user(db_session)
 
         account = Account(
@@ -236,9 +234,6 @@ class TestBootstrapJobSuccess:
                 "backend.services.jobs.aws.bootstrap_account",
                 new_callable=AsyncMock,
                 return_value={
-                    "oidc_provider_arn": (
-                        "arn:aws:iam::222222222222:oidc-provider/idp.example.com"
-                    ),
                     "admin_role_arn": "arn:aws:iam::222222222222:role/GroundworkAdmin",
                 },
             ),
@@ -249,9 +244,6 @@ class TestBootstrapJobSuccess:
         await db_session.refresh(job)
 
         assert account.status == "active"
-        assert (
-            account.oidc_provider_arn == "arn:aws:iam::222222222222:oidc-provider/idp.example.com"
-        )
         assert job.status == "completed"
         assert job.completed_at is not None
 
@@ -439,7 +431,6 @@ class TestSyncAccountsExistingAccounts:
             aws_account_id="222222222222",
             status="active",
             aws_status="ACTIVE",
-            oidc_provider_arn="arn:aws:iam::222222222222:oidc-provider/idp.example.com",
             created_by=user.id,
         )
         db_session.add(existing)
@@ -485,8 +476,8 @@ class TestSyncAccountsExistingAccounts:
         assert job.result["updated"] == 1
         assert job.result["bootstrap_triggered"] == 0
 
-    async def test_triggers_bootstrap_for_unbootstrapped_account(self, db_session):
-        """Existing ACTIVE account with no oidc_provider_arn gets bootstrap job."""
+    async def test_triggers_bootstrap_for_failed_account(self, db_session):
+        """Existing ACTIVE account with failed status gets bootstrap job."""
         user = await _create_user(db_session)
 
         existing = Account(
@@ -562,7 +553,6 @@ class TestCreateRoleSuccess:
             sso_user_email="sso@example.com",
             aws_account_id="111111111111",
             status="active",
-            oidc_provider_arn="arn:aws:iam::111111111111:oidc-provider/idp.example.com",
             created_by=user.id,
         )
         db_session.add(account)
@@ -652,7 +642,6 @@ class TestCreateRoleFailure:
             sso_user_email="sso@example.com",
             aws_account_id="222222222222",
             status="active",
-            oidc_provider_arn="arn:aws:iam::222222222222:oidc-provider/idp.example.com",
             created_by=user.id,
         )
         db_session.add(account)
@@ -698,8 +687,8 @@ class TestCreateRoleFailure:
 
 
 class TestUpdateRoleSuccess:
-    async def test_update_role_calls_aws_without_oidc_provider_arn(self, db_session):
-        """run_update_role no longer passes oidc_provider_arn to aws.update_iam_role."""
+    async def test_update_role_calls_aws_with_changes(self, db_session):
+        """run_update_role passes changes dict to aws.update_iam_role."""
         user = await _create_user(db_session)
 
         account = Account(
@@ -709,7 +698,6 @@ class TestUpdateRoleSuccess:
             sso_user_email="sso@example.com",
             aws_account_id="333333333333",
             status="active",
-            oidc_provider_arn="arn:aws:iam::333333333333:oidc-provider/idp.example.com",
             created_by=user.id,
         )
         db_session.add(account)
@@ -794,7 +782,6 @@ class TestUpdateRoleFailure:
             sso_user_email="sso@example.com",
             aws_account_id="444444444444",
             status="active",
-            oidc_provider_arn="arn:aws:iam::444444444444:oidc-provider/idp.example.com",
             created_by=user.id,
         )
         db_session.add(account)

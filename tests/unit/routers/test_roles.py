@@ -43,7 +43,7 @@ def _cookies(signed_id: str) -> dict:
 
 
 async def _create_active_account(db_session, admin_user):
-    """Helper to create an active account with an OIDC provider ARN."""
+    """Helper to create an active account."""
     account = Account(
         account_name="Test Account",
         account_email=f"acct-{id(db_session)}@example.com",
@@ -52,7 +52,6 @@ async def _create_active_account(db_session, admin_user):
         created_by=admin_user.id,
         status="active",
         aws_account_id="123456789012",
-        oidc_provider_arn="arn:aws:iam::123456789012:oidc-provider/idp.example.com",
     )
     db_session.add(account)
     await db_session.flush()
@@ -751,7 +750,6 @@ class TestAssumeRole:
             created_by=admin.id,
             status="pending",
             aws_account_id="123456789012",
-            oidc_provider_arn="arn:aws:iam::123456789012:oidc-provider/idp.example.com",
         )
         db_session.add(account)
         await db_session.flush()
