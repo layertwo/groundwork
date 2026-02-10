@@ -1014,3 +1014,15 @@ class TestDeleteAccountColor:
         mock_client.request.assert_called_once()
         call_kwargs = mock_client.request.call_args
         assert call_kwargs[0][0] == "DELETE"
+
+
+class TestBuildBootstrapTemplatePermissions:
+    def test_template_includes_admin_access_policy(self):
+        template_json = aws._build_bootstrap_template("111111111111")
+        template = json.loads(template_json)
+        role_props = template["Resources"]["AdminRole"]["Properties"]
+
+        # The role uses AdministratorAccess which covers all permissions,
+        # including iam:* (for alias) and uxc:* (for color).
+        managed_arns = role_props["ManagedPolicyArns"]
+        assert "arn:aws:iam::aws:policy/AdministratorAccess" in managed_arns
