@@ -4,6 +4,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
+  HoverCard,
+  HoverCardTrigger,
+  HoverCardContent,
+} from '@/components/ui/hover-card'
+import {
   Card,
   CardHeader,
   CardTitle,
@@ -402,9 +407,16 @@ export default function AccountDetail() {
                       <span className="text-xs text-muted-foreground">Policies</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {role.managed_policy_arns.map((arn) => (
-                          <Badge key={arn} variant="secondary" className="text-xs">
-                            {arn.split('/').pop()}
-                          </Badge>
+                          <HoverCard key={arn} openDelay={200} closeDelay={0}>
+                            <HoverCardTrigger asChild>
+                              <Badge variant="secondary" className="text-xs cursor-default">
+                                {arn.split('/').pop()}
+                              </Badge>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-auto max-w-sm">
+                              <p className="text-xs font-mono break-all">{arn}</p>
+                            </HoverCardContent>
+                          </HoverCard>
                         ))}
                       </div>
                     </div>

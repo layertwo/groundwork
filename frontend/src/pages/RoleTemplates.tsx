@@ -2,6 +2,11 @@ import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  HoverCard,
+  HoverCardTrigger,
+  HoverCardContent,
+} from '@/components/ui/hover-card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -167,9 +172,16 @@ export default function RoleTemplates() {
                     <div className="flex flex-wrap gap-1">
                       {template.managed_policy_arns.length > 0
                         ? template.managed_policy_arns.map((arn) => (
-                            <Badge key={arn} variant="outline" className="text-xs font-mono">
-                              {arn.split('/').pop()}
-                            </Badge>
+                            <HoverCard key={arn} openDelay={200} closeDelay={0}>
+                              <HoverCardTrigger asChild>
+                                <Badge variant="outline" className="text-xs font-mono cursor-default">
+                                  {arn.split('/').pop()}
+                                </Badge>
+                              </HoverCardTrigger>
+                              <HoverCardContent className="w-auto max-w-sm">
+                                <p className="text-xs font-mono break-all">{arn}</p>
+                              </HoverCardContent>
+                            </HoverCard>
                           ))
                         : '—'}
                     </div>
