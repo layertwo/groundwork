@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Folder, RefreshCw } from 'lucide-react'
@@ -18,6 +18,7 @@ import { listRoles } from '@/api/roles'
 import { createJob } from '@/api/jobs'
 import FederateDropdown from '@/components/FederateDropdown'
 import SearchInput from '@/components/SearchInput'
+import { consumeRedirectUrl } from '@/components/ProtectedRoute'
 
 function statusVariant(status: string) {
   switch (status) {
@@ -50,6 +51,17 @@ export default function Dashboard() {
   const [search, setSearch] = useState('')
   const [showClosed, setShowClosed] = useState(false)
 
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      const redirect = consumeRedirectUrl()
+      if (redirect) {
+        navigate(redirect, { replace: true })
+      }
+    }
+  }, [isAuthenticated, navigate])
+
   const { data: accounts, isLoading: accountsLoading } = useQuery({
     queryKey: ['accounts'],
     queryFn: listAccounts,
@@ -62,7 +74,6 @@ export default function Dashboard() {
     enabled: isAuthenticated,
   })
 
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const syncMutation = useMutation({
