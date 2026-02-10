@@ -30,6 +30,8 @@ class Account(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     oidc_provider_arn: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    alias: Mapped[Optional[str]] = mapped_column(String(63), nullable=True)
+    color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     creator: Mapped["User"] = relationship("User")
     roles: Mapped[list["Role"]] = relationship(
