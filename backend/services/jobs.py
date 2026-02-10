@@ -476,7 +476,6 @@ async def run_create_role(job: Job, db: AsyncSession) -> None:
             aws_account_id=account.aws_account_id,
             role_name=role.role_name,
             role_id=str(role.id),
-            account_id=str(role.account_id),
             managed_policy_arns=role.managed_policy_arns,
             inline_policy=role.inline_policy,
             max_duration=max(role.api_session_duration, role.console_session_duration),

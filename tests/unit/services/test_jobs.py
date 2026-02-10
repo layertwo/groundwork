@@ -595,7 +595,6 @@ class TestCreateRoleSuccess:
             aws_account_id="111111111111",
             role_name="TestRole",
             role_id=str(role.id),
-            account_id=str(role.account_id),
             managed_policy_arns=["arn:aws:iam::aws:policy/ReadOnlyAccess"],
             inline_policy=None,
             max_duration=3600,

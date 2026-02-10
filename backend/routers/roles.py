@@ -359,20 +359,22 @@ async def _load_role_for_assumption(
 
 
 async def _load_role_for_federation(
-    account_id: UUID,
+    aws_account_id: str,
     role_name: str,
     user: User,
     db: AsyncSession,
 ) -> Role:
-    """Load a role by account_id + role_name and verify access for federation."""
+    """Load a role by AWS account ID + role_name and verify access for federation."""
     result = await db.execute(
         select(Role)
         .options(joinedload(Role.account))
-        .where(Role.account_id == account_id, Role.role_name == role_name)
+        .join(Role.account)
+        .where(Account.aws_account_id == aws_account_id, Role.role_name == role_name)
     )
     role = result.scalar_one_or_none()
     if role is None:
         raise NotFoundError("Role not found")
+
     _check_role_access(role, user)
     return role
 
@@ -386,7 +388,7 @@ async def assume_role(
 ):
     role = await _load_role_for_assumption(body.role_id, user, db)
 
-    external_id = aws.compute_external_id(str(role.id), str(role.account_id))
+    external_id = aws.compute_external_id(str(role.id), role.account.aws_account_id)
     credentials = await aws.assume_role(
         role_arn=role.role_arn,
         session_name=_sanitize_session_name(user.email),
@@ -419,7 +421,7 @@ async def assume_role(
 
 @router.get("/api/federate")
 async def federate(
-    account_id: UUID,
+    account_id: str = Query(min_length=12, max_length=12, pattern=r"^\d{12}$"),
     role: str = Query(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_+=,.@\-]+$"),
     *,
     request: Request,
@@ -428,7 +430,7 @@ async def federate(
 ):
     loaded_role = await _load_role_for_federation(account_id, role, user, db)
 
-    external_id = aws.compute_external_id(str(loaded_role.id), str(loaded_role.account_id))
+    external_id = aws.compute_external_id(str(loaded_role.id), loaded_role.account.aws_account_id)
     credentials = await aws.assume_role(
         role_arn=loaded_role.role_arn,
         session_name=_sanitize_session_name(user.email),

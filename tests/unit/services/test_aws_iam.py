@@ -147,7 +147,6 @@ class TestCreateIamRole:
                 aws_account_id=AWS_ACCOUNT_ID,
                 role_name=ROLE_NAME,
                 role_id="test-role-uuid",
-                account_id="test-account-uuid",
                 managed_policy_arns=["arn:aws:iam::aws:policy/ReadOnlyAccess"],
                 inline_policy={"Version": "2012-10-17", "Statement": []},
                 max_duration=3600,

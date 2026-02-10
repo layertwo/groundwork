@@ -840,7 +840,7 @@ class TestFederate:
             )
 
             response = await client.get(
-                f"/api/federate?account_id={account.id}&role={role.role_name}",
+                f"/api/federate?account_id={account.aws_account_id}&role={role.role_name}",
                 cookies=_cookies(session_id),
                 follow_redirects=False,
             )
@@ -863,7 +863,7 @@ class TestFederate:
         )
 
         response = await client.get(
-            f"/api/federate?account_id={account.id}&role={role.role_name}",
+            f"/api/federate?account_id={account.aws_account_id}&role={role.role_name}",
             cookies=_cookies(session_id),
             follow_redirects=False,
         )
@@ -878,7 +878,7 @@ class TestFederate:
         account = await _create_active_account(db_session, admin)
 
         response = await client.get(
-            f"/api/federate?account_id={account.id}&role=NonExistentRole",
+            f"/api/federate?account_id={account.aws_account_id}&role=NonExistentRole",
             cookies=_cookies(session_id),
             follow_redirects=False,
         )
@@ -907,7 +907,7 @@ class TestFederate:
             mock_console.return_value = "https://signin.aws.amazon.com/federation?Action=login"
 
             response = await client.get(
-                f"/api/federate?account_id={account.id}&role={role.role_name}",
+                f"/api/federate?account_id={account.aws_account_id}&role={role.role_name}",
                 cookies=_cookies(session_id),
                 follow_redirects=False,
             )

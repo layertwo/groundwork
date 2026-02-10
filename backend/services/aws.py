@@ -281,7 +281,6 @@ async def create_iam_role(
     aws_account_id: str,
     role_name: str,
     role_id: str,
-    account_id: str,
     managed_policy_arns: list[str],
     inline_policy: dict | None,
     max_duration: int,
@@ -291,7 +290,7 @@ async def create_iam_role(
     Returns the role ARN.
     """
     target_session = await assume_groundwork_admin(aws_account_id)
-    external_id = compute_external_id(role_id, account_id)
+    external_id = compute_external_id(role_id, aws_account_id)
     trust_policy = _build_trust_policy(external_id)
 
     async with target_session.client("iam") as iam:
