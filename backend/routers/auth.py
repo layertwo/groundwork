@@ -93,6 +93,7 @@ async def callback(
     sub = claims["sub"]
     email = claims.get("email", "")
     display_name = claims.get("name") or claims.get("preferred_username", "")
+    preferred_username = claims.get("preferred_username", "")
     groups = claims.get("groups", [])
 
     result = await db.execute(select(User).where(User.sub == sub))
@@ -104,6 +105,7 @@ async def callback(
             sub=sub,
             email=email,
             display_name=display_name,
+            preferred_username=preferred_username,
             groups=groups,
             last_login_at=now,
         )
@@ -112,6 +114,7 @@ async def callback(
     else:
         user.email = email
         user.display_name = display_name
+        user.preferred_username = preferred_username
         user.groups = groups
         user.last_login_at = now
         db.add(user)
