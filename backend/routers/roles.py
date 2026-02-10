@@ -364,18 +364,16 @@ async def assume_role(
     body: AssumeRoleRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    session: Session = Depends(get_current_session),
+    user: User = Depends(get_current_user),
 ):
-    user = session.user
     role = await _load_role_for_assumption(body.role_id, user, db)
 
-    id_token = await get_fresh_id_token(session, db)
-
-    credentials = await aws.assume_role_with_web_identity(
+    external_id = aws.compute_external_id(str(role.id), str(role.account_id))
+    credentials = await aws.assume_role(
         role_arn=role.role_arn,
-        id_token=id_token,
-        session_duration=role.api_session_duration,
         session_name=_sanitize_session_name(user.email),
+        external_id=external_id,
+        session_duration=role.api_session_duration,
     )
 
     await log_event(

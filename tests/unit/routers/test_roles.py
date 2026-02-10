@@ -668,7 +668,7 @@ class TestAssumeRole:
         role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
 
         with patch(
-            "backend.routers.roles.aws.assume_role_with_web_identity",
+            "backend.routers.roles.aws.assume_role",
             new_callable=AsyncMock,
         ) as mock_assume:
             mock_assume.return_value = FAKE_STS_CREDS
@@ -691,6 +691,7 @@ class TestAssumeRole:
         assert call_kwargs["role_arn"] == role.role_arn
         assert call_kwargs["session_duration"] == 900
         assert call_kwargs["session_name"] == user.email
+        assert "external_id" in call_kwargs
 
     async def test_assume_role_forbidden_no_group_match(self, client, db_session):
         user, session_id = await _create_user_with_tokens(
@@ -724,7 +725,7 @@ class TestAssumeRole:
         )
 
         with patch(
-            "backend.routers.roles.aws.assume_role_with_web_identity",
+            "backend.routers.roles.aws.assume_role",
             new_callable=AsyncMock,
         ) as mock_assume:
             mock_assume.return_value = FAKE_STS_CREDS
@@ -766,47 +767,6 @@ class TestAssumeRole:
 
         assert response.status_code == 400
 
-    async def test_assume_role_token_refresh(self, client, db_session):
-        """When id_token is near expiry, it should be refreshed before STS call."""
-        user, session_id = await _create_user_with_tokens(
-            db_session, groups=["devs"], sub="dev-refresh", id_token_expires_in=30
-        )
-        admin, _ = await _create_authenticated_user(db_session, is_admin=True)
-        account = await _create_active_account(db_session, admin)
-        role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
-
-        fresh_id_token = make_id_token(sub="dev-refresh", expires_in=3600)
-
-        with (
-            patch(
-                "backend.routers.roles.aws.assume_role_with_web_identity",
-                new_callable=AsyncMock,
-            ) as mock_assume,
-            patch(
-                "backend.dependencies.auth.oidc.refresh_tokens",
-                new_callable=AsyncMock,
-            ) as mock_refresh,
-        ):
-            mock_assume.return_value = FAKE_STS_CREDS
-            mock_refresh.return_value = {
-                "access_token": "new-access",
-                "refresh_token": "new-refresh",
-                "id_token": fresh_id_token,
-                "expires_in": 3600,
-            }
-
-            response = await client.post(
-                "/api/roles/assume",
-                json={"role_id": str(role.id)},
-                cookies=_cookies(session_id),
-            )
-
-        assert response.status_code == 200
-        mock_refresh.assert_called_once()
-        # The STS call should use the refreshed token
-        call_kwargs = mock_assume.call_args.kwargs
-        assert call_kwargs["id_token"] == fresh_id_token
-
     async def test_assume_role_audit_logged(self, client, db_session):
         user, session_id = await _create_user_with_tokens(
             db_session, groups=["devs"], sub="dev-audit"
@@ -816,7 +776,7 @@ class TestAssumeRole:
         role = await _create_role_for_assumption(db_session, account, allowed_groups=["devs"])
 
         with patch(
-            "backend.routers.roles.aws.assume_role_with_web_identity",
+            "backend.routers.roles.aws.assume_role",
             new_callable=AsyncMock,
         ) as mock_assume:
             mock_assume.return_value = FAKE_STS_CREDS
