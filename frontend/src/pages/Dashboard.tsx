@@ -23,6 +23,7 @@ import { createJob } from '@/api/jobs'
 import FederateDropdown from '@/components/FederateDropdown'
 import SearchInput from '@/components/SearchInput'
 import { consumeRedirectUrl } from '@/components/ProtectedRoute'
+import { AWS_COLORS } from '@/lib/aws-colors'
 
 function statusVariant(status: string) {
   switch (status) {
@@ -117,7 +118,8 @@ export default function Dashboard() {
           a.account_name.toLowerCase().includes(q) ||
           a.account_email.toLowerCase().includes(q) ||
           (a.aws_account_id ?? '').includes(q) ||
-          a.organizational_unit.toLowerCase().includes(q)
+          a.organizational_unit.toLowerCase().includes(q) ||
+          (a.alias ?? '').toLowerCase().includes(q)
       )
     }
 
@@ -224,12 +226,25 @@ export default function Dashboard() {
                       }
                     >
                       <TableCell>
-                        <Link
-                          to={`/accounts/${account.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {account.account_name}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          {account.color && AWS_COLORS[account.color] && (
+                            <span
+                              className="inline-block size-3 rounded-sm shrink-0"
+                              style={{ backgroundColor: AWS_COLORS[account.color] }}
+                            />
+                          )}
+                          <div>
+                            <Link
+                              to={`/accounts/${account.id}`}
+                              className="font-medium hover:underline"
+                            >
+                              {account.account_name}
+                            </Link>
+                            {account.alias && (
+                              <div className="text-xs text-muted-foreground">{account.alias}</div>
+                            )}
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {account.account_email}
