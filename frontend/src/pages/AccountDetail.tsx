@@ -13,12 +13,12 @@ import {
 } from '@/components/ui/table'
 import { useAuth } from '@/context/AuthContext'
 import { getAccount } from '@/api/accounts'
-import { listRoles, assumeRole, getConsoleUrl, deleteRole } from '@/api/roles'
+import { listRoles, federate, deleteRole } from '@/api/roles'
 import { ApiError } from '@/api/client'
 import { listJobs } from '@/api/jobs'
 import SearchInput from '@/components/SearchInput'
 import CredentialsDialog from '@/components/CredentialsDialog'
-import type { AssumeRoleResponse } from '@/api/roles'
+import type { AssumeRoleResponse, ConsoleUrlResponse } from '@/api/roles'
 
 function statusVariant(status: string) {
   switch (status) {
@@ -81,11 +81,15 @@ export default function AccountDetail() {
     refetchInterval: isProvisioning ? 5000 : false,
   })
 
-  const handleFederate = async (roleId: string) => {
-    setLoading(roleId)
+  const handleFederate = async (roleName: string) => {
+    setLoading(roleName)
     setError(null)
     try {
-      const res = await getConsoleUrl(roleId)
+      const res = (await federate(
+        account!.aws_account_id!,
+        roleName,
+        'console',
+      )) as ConsoleUrlResponse
       const url = new URL(res.console_url)
       if (url.protocol !== 'https:' || !url.hostname.endsWith('.aws.amazon.com')) {
         setError('Invalid console URL returned')
@@ -99,11 +103,15 @@ export default function AccountDetail() {
     }
   }
 
-  const handleCopyCli = async (roleId: string, roleName: string) => {
-    setLoading(roleId)
+  const handleCopyCli = async (roleName: string) => {
+    setLoading(roleName)
     setError(null)
     try {
-      const res = await assumeRole(roleId)
+      const res = (await federate(
+        account!.aws_account_id!,
+        roleName,
+        'cli',
+      )) as AssumeRoleResponse
       setCredentials(res)
       setCredentialsRoleName(roleName)
       setDialogOpen(true)
@@ -245,16 +253,20 @@ export default function AccountDetail() {
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={loading === role.id || account.status !== 'active'}
-                        onClick={() => handleFederate(role.id)}
+                        disabled={
+                          loading === role.role_name || account.status !== 'active'
+                        }
+                        onClick={() => handleFederate(role.role_name)}
                       >
                         Federate
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={loading === role.id || account.status !== 'active'}
-                        onClick={() => handleCopyCli(role.id, role.role_name)}
+                        disabled={
+                          loading === role.role_name || account.status !== 'active'
+                        }
+                        onClick={() => handleCopyCli(role.role_name)}
                       >
                         Copy CLI
                       </Button>

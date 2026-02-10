@@ -56,7 +56,6 @@ export interface AssumeRoleResponse {
 
 export interface ConsoleUrlResponse {
   console_url: string
-  expiration: string
 }
 
 export function listRoles(): Promise<RoleResponse[]> {
@@ -132,16 +131,15 @@ export function deleteRole(
   })
 }
 
-export function assumeRole(roleId: string): Promise<AssumeRoleResponse> {
-  return apiFetch<AssumeRoleResponse>('/api/roles/assume', {
-    method: 'POST',
-    body: JSON.stringify({ role_id: roleId }),
+export function federate(
+  awsAccountId: string,
+  roleName: string,
+  method: 'console' | 'cli' = 'console',
+): Promise<AssumeRoleResponse | ConsoleUrlResponse> {
+  const params = new URLSearchParams({
+    account_id: awsAccountId,
+    role: roleName,
+    method,
   })
-}
-
-export function getConsoleUrl(roleId: string): Promise<ConsoleUrlResponse> {
-  return apiFetch<ConsoleUrlResponse>('/api/roles/console', {
-    method: 'POST',
-    body: JSON.stringify({ role_id: roleId }),
-  })
+  return apiFetch(`/api/federate?${params}`)
 }

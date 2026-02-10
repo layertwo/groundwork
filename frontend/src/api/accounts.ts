@@ -10,7 +10,6 @@ export interface AccountResponse {
   aws_status: string | null
   sso_user_email: string
   provisioned_product_id: string | null
-  oidc_provider_arn: string | null
   created_by: string
   error_message: string | null
   created_at: string
