@@ -14,6 +14,8 @@ export interface AccountResponse {
   error_message: string | null
   created_at: string
   updated_at: string
+  alias: string | null
+  color: string | null
 }
 
 export interface AccountCreate {
@@ -27,6 +29,8 @@ export interface AccountUpdate {
   account_name?: string
   organizational_unit?: string
   sso_user_email?: string
+  alias?: string
+  color?: string
 }
 
 export function listAccounts(): Promise<AccountResponse[]> {

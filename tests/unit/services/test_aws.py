@@ -2,9 +2,10 @@
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from botocore.credentials import Credentials
 
 from backend.config import settings
 from backend.services import aws
@@ -782,3 +783,271 @@ class TestGetAccountOu:
             ou_id = await aws.get_account_ou("222222222222")
 
         assert ou_id == "r-abc1"
+
+
+class TestGetAccountAlias:
+    async def test_returns_alias_when_set(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "list_account_aliases",
+            {"AccountAliases": ["my-alias"], "IsTruncated": False},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            result = await aws.get_account_alias("123456789012")
+
+        assert result == "my-alias"
+        iam_stubber.assert_no_pending_responses()
+
+    async def test_returns_none_when_no_alias(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "list_account_aliases",
+            {"AccountAliases": [], "IsTruncated": False},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            result = await aws.get_account_alias("123456789012")
+
+        assert result is None
+        iam_stubber.assert_no_pending_responses()
+
+
+class TestSetAccountAlias:
+    async def test_creates_alias(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "create_account_alias",
+            {},
+            expected_params={"AccountAlias": "my-alias"},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            await aws.set_account_alias("123456789012", "my-alias")
+
+        iam_stubber.assert_no_pending_responses()
+
+
+class TestDeleteAccountAlias:
+    async def test_deletes_alias(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "delete_account_alias",
+            {},
+            expected_params={"AccountAlias": "my-alias"},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            await aws.delete_account_alias("123456789012", "my-alias")
+
+        iam_stubber.assert_no_pending_responses()
+
+
+class TestGetAccountColor:
+    async def test_returns_color_when_set(self):
+        fake_creds = Credentials(access_key="AKIAEXAMPLE", secret_key="secret", token="token")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"color": "red"}'
+
+        with (
+            patch.object(
+                aws, "_get_uxc_credentials", new_callable=AsyncMock, return_value=fake_creds
+            ),
+            patch("backend.services.aws.httpx.AsyncClient") as mock_httpx_cls,
+        ):
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.request.return_value = mock_response
+            mock_httpx_cls.return_value = mock_client
+
+            result = await aws.get_account_color("123456789012")
+
+        assert result == "red"
+        mock_client.request.assert_called_once()
+        assert mock_client.request.call_args[0][0] == "GET"
+
+    async def test_returns_none_when_no_color(self):
+        fake_creds = Credentials(access_key="AKIAEXAMPLE", secret_key="secret", token="token")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"color": "none"}'
+
+        with (
+            patch.object(
+                aws, "_get_uxc_credentials", new_callable=AsyncMock, return_value=fake_creds
+            ),
+            patch("backend.services.aws.httpx.AsyncClient") as mock_httpx_cls,
+        ):
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.request.return_value = mock_response
+            mock_httpx_cls.return_value = mock_client
+
+            result = await aws.get_account_color("123456789012")
+
+        assert result is None
+
+
+class TestSetAccountColor:
+    async def test_sets_color(self):
+        fake_creds = Credentials(access_key="AKIAEXAMPLE", secret_key="secret", token="token")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"color": "green"}'
+        mock_response.raise_for_status = MagicMock()
+
+        with (
+            patch.object(
+                aws, "_get_uxc_credentials", new_callable=AsyncMock, return_value=fake_creds
+            ),
+            patch("backend.services.aws.httpx.AsyncClient") as mock_httpx_cls,
+        ):
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.request.return_value = mock_response
+            mock_httpx_cls.return_value = mock_client
+
+            await aws.set_account_color("123456789012", "green")
+
+        mock_client.request.assert_called_once()
+        assert mock_client.request.call_args[0][0] == "PUT"
+
+
+class TestDeleteAccountColor:
+    async def test_deletes_color(self):
+        fake_creds = Credentials(access_key="AKIAEXAMPLE", secret_key="secret", token="token")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.content = b""
+        mock_response.raise_for_status = MagicMock()
+
+        with (
+            patch.object(
+                aws, "_get_uxc_credentials", new_callable=AsyncMock, return_value=fake_creds
+            ),
+            patch("backend.services.aws.httpx.AsyncClient") as mock_httpx_cls,
+        ):
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.request.return_value = mock_response
+            mock_httpx_cls.return_value = mock_client
+
+            await aws.delete_account_color("123456789012")
+
+        mock_client.request.assert_called_once()
+        assert mock_client.request.call_args[0][0] == "DELETE"
+
+
+class TestGetIamRoleMetadata:
+    async def test_returns_metadata_for_existing_role(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_response(
+            "get_role",
+            {
+                "Role": {
+                    "RoleName": "TestRole",
+                    "Arn": "arn:aws:iam::123456789012:role/TestRole",
+                    "MaxSessionDuration": 3600,
+                    "RoleLastUsed": {
+                        "LastUsedDate": datetime(2025, 6, 15, 12, 0, 0),
+                    },
+                    "Path": "/",
+                    "RoleId": "AROAEXAMPLEID1234",
+                    "CreateDate": datetime(2025, 1, 1),
+                    "AssumeRolePolicyDocument": "{}",
+                },
+            },
+            expected_params={"RoleName": "TestRole"},
+        )
+        iam_stubber.add_response(
+            "list_attached_role_policies",
+            {
+                "AttachedPolicies": [
+                    {
+                        "PolicyName": "ReadOnly",
+                        "PolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+                    },
+                ],
+                "IsTruncated": False,
+            },
+            expected_params={"RoleName": "TestRole"},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            result = await aws.get_iam_role_metadata("123456789012", "TestRole")
+
+        assert result["exists"] is True
+        assert result["max_session_duration"] == 3600
+        assert result["attached_policy_arns"] == ["arn:aws:iam::aws:policy/ReadOnlyAccess"]
+        assert result["last_used"] == datetime(2025, 6, 15, 12, 0, 0)
+        iam_stubber.assert_no_pending_responses()
+
+    async def test_returns_not_exists_for_missing_role(self):
+        _, iam_stubber = await create_stubbed_client("iam")
+        iam_stubber.add_client_error(
+            "get_role",
+            service_error_code="NoSuchEntity",
+            service_message="Role not found",
+            expected_params={"RoleName": "MissingRole"},
+        )
+        iam_stubber.activate()
+
+        with patch.object(
+            aws,
+            "assume_groundwork_admin",
+            new_callable=AsyncMock,
+            return_value=_stubbed_session({"iam": iam_stubber}),
+        ):
+            result = await aws.get_iam_role_metadata("123456789012", "MissingRole")
+
+        assert result["exists"] is False
+        assert result["max_session_duration"] is None
+        assert result["attached_policy_arns"] == []
+        assert result["last_used"] is None
+
+
+class TestBuildBootstrapTemplatePermissions:
+    def test_template_includes_admin_access_policy(self):
+        template_json = aws._build_bootstrap_template("111111111111")
+        template = json.loads(template_json)
+        role_props = template["Resources"]["AdminRole"]["Properties"]
+
+        # The role uses AdministratorAccess which covers all permissions,
+        # including iam:* (for alias) and uxc:* (for color).
+        managed_arns = role_props["ManagedPolicyArns"]
+        assert "arn:aws:iam::aws:policy/AdministratorAccess" in managed_arns

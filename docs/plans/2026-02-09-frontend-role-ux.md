@@ -1,15 +1,308 @@
+# Frontend Role UX Improvements
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** Improve role management UX with update support, 1-click template creation, card-based layout, and cleaner account details.
+
+**Architecture:** All changes are frontend-only. The backend already exposes `PATCH /api/accounts/{account_id}/roles/{role_id}` and the frontend API client already has `updateRole()`. We add a role edit dialog, a quick-create dropdown, replace the role table with cards, and reorganize the account detail header.
+
+**Tech Stack:** React, TypeScript, TanStack React Query, Radix UI (Dialog, DropdownMenu, Select), Tailwind CSS, shadcn/ui Card component.
+
+---
+
+### Task 1: Add missing fields to frontend RoleResponse
+
+The backend `RoleResponse` schema returns `status` and `error_message` but the frontend interface omits them. We need these for role cards (showing status badges, disabling actions on pending/updating roles).
+
+**Files:**
+- Modify: `frontend/src/api/roles.ts:3-17`
+
+**Step 1: Add status and error_message to RoleResponse**
+
+In `frontend/src/api/roles.ts`, add two fields to the `RoleResponse` interface:
+
+```typescript
+export interface RoleResponse {
+  id: string
+  account_id: string
+  role_name: string
+  role_arn: string
+  status: string
+  error_message: string | null
+  allowed_groups: string[]
+  managed_policy_arns: string[]
+  inline_policy: Record<string, unknown> | null
+  allowed_users: string[]
+  api_session_duration: number
+  console_session_duration: number
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+```
+
+**Step 2: Commit**
+
+```bash
+git add frontend/src/api/roles.ts
+git commit -m "feat: add status and error_message to RoleResponse interface"
+```
+
+---
+
+### Task 2: Create RoleEditDialog component
+
+A dialog for editing an existing role. Pre-fills all editable fields. Uses the existing `updateRole` API function and `TagInput` component.
+
+**Files:**
+- Create: `frontend/src/components/RoleEditDialog.tsx`
+
+**Step 1: Create the RoleEditDialog component**
+
+Create `frontend/src/components/RoleEditDialog.tsx`:
+
+```tsx
+import { useState, useEffect } from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import TagInput from '@/components/TagInput'
+import { updateRole } from '@/api/roles'
+import { ApiError } from '@/api/client'
+import type { RoleResponse } from '@/api/roles'
+
+interface RoleEditDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  role: RoleResponse | null
+  accountId: string
+  onUpdated: () => void
+}
+
+export default function RoleEditDialog({
+  open,
+  onOpenChange,
+  role,
+  accountId,
+  onUpdated,
+}: RoleEditDialogProps) {
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const [description, setDescription] = useState('')
+  const [managedPolicies, setManagedPolicies] = useState<string[]>([])
+  const [inlinePolicy, setInlinePolicy] = useState('')
+  const [allowedGroups, setAllowedGroups] = useState<string[]>([])
+  const [allowedUsers, setAllowedUsers] = useState<string[]>([])
+  const [apiSessionMinutes, setApiSessionMinutes] = useState(15)
+  const [consoleSessionMinutes, setConsoleSessionMinutes] = useState(60)
+
+  useEffect(() => {
+    if (role && open) {
+      setDescription(role.description ?? '')
+      setManagedPolicies(role.managed_policy_arns)
+      setInlinePolicy(role.inline_policy ? JSON.stringify(role.inline_policy, null, 2) : '')
+      setAllowedGroups(role.allowed_groups)
+      setAllowedUsers(role.allowed_users)
+      setApiSessionMinutes(Math.round(role.api_session_duration / 60))
+      setConsoleSessionMinutes(Math.round(role.console_session_duration / 60))
+      setError('')
+    }
+  }, [role, open])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!role) return
+    setError('')
+    setSubmitting(true)
+
+    try {
+      if (
+        apiSessionMinutes < 15 ||
+        apiSessionMinutes > 720 ||
+        !Number.isInteger(apiSessionMinutes)
+      ) {
+        setError('API session must be a whole number between 15 and 720 minutes')
+        setSubmitting(false)
+        return
+      }
+      if (
+        consoleSessionMinutes < 15 ||
+        consoleSessionMinutes > 720 ||
+        !Number.isInteger(consoleSessionMinutes)
+      ) {
+        setError('Console session must be a whole number between 15 and 720 minutes')
+        setSubmitting(false)
+        return
+      }
+
+      let parsedInlinePolicy: Record<string, unknown> | null = null
+      if (inlinePolicy.trim()) {
+        try {
+          parsedInlinePolicy = JSON.parse(inlinePolicy)
+        } catch {
+          setError('Invalid JSON in inline policy')
+          setSubmitting(false)
+          return
+        }
+      }
+
+      await updateRole(accountId, role.id, {
+        description: description || null,
+        managed_policy_arns: managedPolicies,
+        inline_policy: parsedInlinePolicy,
+        allowed_groups: allowedGroups,
+        allowed_users: allowedUsers,
+        api_session_duration: apiSessionMinutes * 60,
+        console_session_duration: consoleSessionMinutes * 60,
+      })
+      onUpdated()
+      onOpenChange(false)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to update role')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit {role?.role_name}</DialogTitle>
+        </DialogHeader>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="edit_description">Description</Label>
+            <Input
+              id="edit_description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={1000}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Managed Policy ARNs</Label>
+            <TagInput
+              value={managedPolicies}
+              onChange={setManagedPolicies}
+              placeholder="arn:aws:iam::aws:policy/..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="edit_inline_policy">Inline Policy (JSON)</Label>
+            <Textarea
+              id="edit_inline_policy"
+              value={inlinePolicy}
+              onChange={(e) => setInlinePolicy(e.target.value)}
+              rows={6}
+              maxLength={10240}
+              className="font-mono text-sm"
+              placeholder='{"Statement": []}'
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Allowed Groups</Label>
+            <TagInput
+              value={allowedGroups}
+              onChange={setAllowedGroups}
+              placeholder="Add group name..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Allowed Users</Label>
+            <TagInput
+              value={allowedUsers}
+              onChange={setAllowedUsers}
+              placeholder="Add user email or sub..."
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit_api_session">API Session (min)</Label>
+              <Input
+                id="edit_api_session"
+                type="number"
+                min={15}
+                max={720}
+                value={apiSessionMinutes}
+                onChange={(e) => setApiSessionMinutes(Number(e.target.value))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_console_session">Console Session (min)</Label>
+              <Input
+                id="edit_console_session"
+                type="number"
+                min={15}
+                max={720}
+                value={consoleSessionMinutes}
+                onChange={(e) => setConsoleSessionMinutes(Number(e.target.value))}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+```
+
+**Step 2: Commit**
+
+```bash
+git add frontend/src/components/RoleEditDialog.tsx
+git commit -m "feat: add RoleEditDialog component for editing existing roles"
+```
+
+---
+
+### Task 3: Rewrite AccountDetail with card layout, edit dialog, quick-create, and neat account info
+
+This is the main task. We rewrite `AccountDetail.tsx` to:
+1. Show account details in a clean labeled grid
+2. Replace the role table with cards
+3. Add the edit dialog integration
+4. Add a quick-create dropdown for 1-click template role creation
+
+**Files:**
+- Modify: `frontend/src/pages/AccountDetail.tsx`
+
+**Step 1: Rewrite AccountDetail.tsx**
+
+Replace the full contents of `frontend/src/pages/AccountDetail.tsx`:
+
+```tsx
 import { useState, useMemo } from 'react'
-import { toast } from 'sonner'
-import { Pencil, Check, X } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  HoverCard,
-  HoverCardTrigger,
-  HoverCardContent,
-} from '@/components/ui/hover-card'
 import {
   Card,
   CardHeader,
@@ -24,35 +317,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/context/AuthContext'
-import { getAccount, updateAccount } from '@/api/accounts'
+import { getAccount } from '@/api/accounts'
 import {
   listRoles,
   federate,
   deleteRole,
   createRole,
   getRoleTemplates,
-  fixDrift,
 } from '@/api/roles'
 import { ApiError } from '@/api/client'
-import { AWS_COLORS, AWS_COLOR_NAMES, awsColorLabel } from '@/lib/aws-colors'
 import { listJobs } from '@/api/jobs'
 import SearchInput from '@/components/SearchInput'
 import CredentialsDialog from '@/components/CredentialsDialog'
@@ -65,22 +339,10 @@ function statusVariant(status: string) {
     case 'completed':
       return 'default' as const
     case 'failed':
-    case 'drifted':
       return 'destructive' as const
     default:
       return 'secondary' as const
   }
-}
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  const days = Math.floor(hrs / 24)
-  return `${days}d ago`
 }
 
 export default function AccountDetail() {
@@ -91,7 +353,7 @@ export default function AccountDetail() {
   const [credentialsRoleName, setCredentialsRoleName] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loading, setLoading] = useState<string | null>(null)
-  const [deleteRoleId, setDeleteRoleId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Edit dialog state
   const [editRole, setEditRole] = useState<RoleResponse | null>(null)
@@ -99,35 +361,6 @@ export default function AccountDetail() {
 
   // Quick-create state
   const [creating, setCreating] = useState(false)
-
-  // Alias editing state
-  const [editingAlias, setEditingAlias] = useState(false)
-  const [aliasValue, setAliasValue] = useState('')
-
-  const aliasMutation = useMutation({
-    mutationFn: (alias: string) => updateAccount(id!, { alias }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['account', id] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      setEditingAlias(false)
-      toast.success('Account alias updated')
-    },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.detail : 'Failed to update alias')
-    },
-  })
-
-  const colorMutation = useMutation({
-    mutationFn: (color: string) => updateAccount(id!, { color }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['account', id] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      toast.success('Account color updated')
-    },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.detail : 'Failed to update color')
-    },
-  })
 
   const handleDialogChange = (open: boolean) => {
     setDialogOpen(open)
@@ -171,10 +404,12 @@ export default function AccountDetail() {
     queryKey: ['jobs', id],
     queryFn: () => listJobs({ account_id: id }),
     enabled: !!id && isProvisioning,
+    refetchInterval: isProvisioning ? 5000 : false,
   })
 
   const handleFederate = async (roleName: string) => {
     setLoading(roleName)
+    setError(null)
     try {
       const res = (await federate(
         account!.aws_account_id!,
@@ -183,13 +418,12 @@ export default function AccountDetail() {
       )) as ConsoleUrlResponse
       const url = new URL(res.console_url)
       if (url.protocol !== 'https:' || !url.hostname.endsWith('.aws.amazon.com')) {
-        toast.error('Invalid console URL returned')
+        setError('Invalid console URL returned')
         return
       }
       window.open(res.console_url, '_blank', 'noopener,noreferrer')
-      toast.success('Opened AWS Console')
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.detail : 'Failed to federate')
+      setError(err instanceof ApiError ? err.detail : 'Failed to federate')
     } finally {
       setLoading(null)
     }
@@ -197,6 +431,7 @@ export default function AccountDetail() {
 
   const handleCopyCli = async (roleName: string) => {
     setLoading(roleName)
+    setError(null)
     try {
       const res = (await federate(
         account!.aws_account_id!,
@@ -207,23 +442,20 @@ export default function AccountDetail() {
       setCredentialsRoleName(roleName)
       setDialogOpen(true)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.detail : 'Failed to get credentials')
+      setError(err instanceof ApiError ? err.detail : 'Failed to get credentials')
     } finally {
       setLoading(null)
     }
   }
 
-  const handleDelete = async () => {
-    if (!id || !deleteRoleId) return
+  const handleDelete = async (roleId: string) => {
+    if (!id || !confirm('Delete this role? This will remove the IAM role from AWS.')) return
+    setError(null)
     try {
-      await deleteRole(id, deleteRoleId)
+      await deleteRole(id, roleId)
       refetchRoles()
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      toast.success('Role deletion started')
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.detail : 'Failed to delete role')
-    } finally {
-      setDeleteRoleId(null)
+      setError(err instanceof ApiError ? err.detail : 'Failed to delete role')
     }
   }
 
@@ -234,6 +466,7 @@ export default function AccountDetail() {
 
   const handleQuickCreate = async (templateId: string, templateName: string) => {
     if (!id) return
+    setError(null)
     setCreating(true)
     try {
       await createRole(id, {
@@ -241,27 +474,15 @@ export default function AccountDetail() {
         template_id: templateId,
       })
       refetchRoles()
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      toast.success('Role creation started')
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.detail : 'Failed to create role from template')
+      setError(err instanceof ApiError ? err.detail : 'Failed to create role from template')
     } finally {
       setCreating(false)
     }
   }
 
   if (accountLoading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-4 w-24" />
-        <Skeleton className="h-48 w-full" />
-        <Skeleton className="h-8 w-32" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Skeleton className="h-48 w-full" />
-          <Skeleton className="h-48 w-full" />
-        </div>
-      </div>
-    )
+    return <div className="text-muted-foreground">Loading...</div>
   }
 
   if (!account) {
@@ -313,105 +534,6 @@ export default function AccountDetail() {
             <div>
               <dt className="text-muted-foreground">Last Updated</dt>
               <dd>{new Date(account.updated_at).toLocaleDateString()}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Account Alias</dt>
-              <dd>
-                {editingAlias ? (
-                  <div className="flex items-center gap-1">
-                    <Input
-                      value={aliasValue}
-                      onChange={(e) => setAliasValue(e.target.value)}
-                      placeholder="e.g. my-prod-account"
-                      className="h-7 w-48 text-sm"
-                      pattern="[a-z0-9-]*"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => aliasMutation.mutate(aliasValue)}
-                      disabled={aliasMutation.isPending}
-                    >
-                      <Check className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setEditingAlias(false)}
-                    >
-                      <X className="size-3.5" />
-                    </Button>
-                  </div>
-                ) : (
-                  <span className="flex items-center gap-1.5">
-                    {account.alias ?? '—'}
-                    {isAdmin && account.status === 'active' && (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => {
-                          setAliasValue(account.alias ?? '')
-                          setEditingAlias(true)
-                        }}
-                      >
-                        <Pencil className="size-3" />
-                      </Button>
-                    )}
-                  </span>
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Account Color</dt>
-              <dd>
-                {isAdmin && account.status === 'active' ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="xs" className="gap-1.5" disabled={colorMutation.isPending}>
-                        {account.color && AWS_COLORS[account.color] ? (
-                          <>
-                            <span
-                              className="inline-block size-3 rounded-sm"
-                              style={{ backgroundColor: AWS_COLORS[account.color] }}
-                            />
-                            {awsColorLabel(account.color)}
-                          </>
-                        ) : (
-                          'None'
-                        )}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      <DropdownMenuItem onClick={() => colorMutation.mutate('none')}>
-                        None
-                      </DropdownMenuItem>
-                      {AWS_COLOR_NAMES.map((c) => (
-                        <DropdownMenuItem key={c} onClick={() => colorMutation.mutate(c)}>
-                          <span
-                            className="inline-block size-3 rounded-sm mr-2"
-                            style={{ backgroundColor: AWS_COLORS[c] }}
-                          />
-                          {awsColorLabel(c)}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : (
-                  <span className="flex items-center gap-1.5">
-                    {account.color && AWS_COLORS[account.color] ? (
-                      <>
-                        <span
-                          className="inline-block size-3 rounded-sm"
-                          style={{ backgroundColor: AWS_COLORS[account.color] }}
-                        />
-                        {awsColorLabel(account.color)}
-                      </>
-                    ) : (
-                      '—'
-                    )}
-                  </span>
-                )}
-              </dd>
             </div>
           </dl>
         </CardContent>
@@ -497,20 +619,6 @@ export default function AccountDetail() {
                   {role.error_message && (
                     <p className="text-xs text-destructive">{role.error_message}</p>
                   )}
-                  {role.last_used_at ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p className="text-xs text-muted-foreground cursor-default">
-                          Last used {relativeTime(role.last_used_at)}
-                        </p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{new Date(role.last_used_at).toLocaleString()}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Never used</p>
-                  )}
                   <CardAction>
                     <div className="flex gap-1">
                       <Button
@@ -570,16 +678,9 @@ export default function AccountDetail() {
                       <span className="text-xs text-muted-foreground">Policies</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {role.managed_policy_arns.map((arn) => (
-                          <HoverCard key={arn} openDelay={200} closeDelay={0}>
-                            <HoverCardTrigger asChild>
-                              <Badge variant="secondary" className="text-xs cursor-default">
-                                {arn.split('/').pop()}
-                              </Badge>
-                            </HoverCardTrigger>
-                            <HoverCardContent className="w-auto max-w-sm">
-                              <p className="text-xs font-mono break-all">{arn}</p>
-                            </HoverCardContent>
-                          </HoverCard>
+                          <Badge key={arn} variant="secondary" className="text-xs">
+                            {arn.split('/').pop()}
+                          </Badge>
                         ))}
                       </div>
                     </div>
@@ -594,30 +695,11 @@ export default function AccountDetail() {
                       >
                         Edit
                       </Button>
-                      {role.status === 'drifted' && (
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          onClick={async () => {
-                            try {
-                              await fixDrift(id!, role.id)
-                              refetchRoles()
-                              toast.success('Drift fix started')
-                            } catch (err) {
-                              toast.error(
-                                err instanceof ApiError ? err.detail : 'Failed to fix drift'
-                              )
-                            }
-                          }}
-                        >
-                          Fix Drift
-                        </Button>
-                      )}
                       <Button
                         variant="ghost"
                         size="xs"
                         className="text-destructive"
-                        onClick={() => setDeleteRoleId(role.id)}
+                        onClick={() => handleDelete(role.id)}
                         disabled={role.status === 'updating'}
                       >
                         Delete
@@ -630,6 +712,8 @@ export default function AccountDetail() {
           </div>
         )}
       </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       <CredentialsDialog
         open={dialogOpen}
@@ -649,21 +733,48 @@ export default function AccountDetail() {
           queryClient.invalidateQueries({ queryKey: ['account', id] })
         }}
       />
-
-      <AlertDialog open={!!deleteRoleId} onOpenChange={(open) => !open && setDeleteRoleId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete role?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove the IAM role from AWS. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
+```
+
+**Step 2: Verify the build compiles**
+
+Run: `cd frontend && npm run build`
+Expected: No TypeScript or build errors.
+
+**Step 3: Commit**
+
+```bash
+git add frontend/src/pages/AccountDetail.tsx
+git commit -m "feat: rewrite account detail with role cards, edit dialog, quick-create, and info grid"
+```
+
+---
+
+### Task 4: Verify and fix any build issues
+
+**Step 1: Run the build**
+
+Run: `cd frontend && npm run build`
+
+If there are any missing imports or type issues, fix them.
+
+**Step 2: Verify visually**
+
+Run: `cd frontend && npm run dev`
+
+Check `/accounts/<id>` page:
+- Account info shows in a card with labeled grid
+- Roles display as cards in a 2-column grid
+- Each card shows status badge, groups, users, policies
+- Edit button opens dialog with pre-filled fields
+- Quick Create dropdown shows templates
+- Add Role button still links to full creation form
+
+**Step 3: Final commit if fixes were needed**
+
+```bash
+git add -A frontend/src/
+git commit -m "fix: resolve build issues from account detail rewrite"
+```

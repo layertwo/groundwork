@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import settings
 from backend.database import async_session_factory
 from backend.models.account import Account
 from backend.models.job import Job
@@ -73,14 +74,21 @@ async def execute_job(job_id: uuid.UUID) -> None:
     If the job has a ``scheduled_after`` value in the future, sleeps outside
     any DB session to avoid holding a connection pool slot.
     """
-    # Check for scheduled delay in a short-lived session
-    async with async_session_factory() as db:
-        result = await db.execute(select(Job.scheduled_after).where(Job.id == job_id))
-        row = result.one_or_none()
-        if row is None:
-            logger.error("Job %s not found", job_id)
-            return
-        scheduled_after = row[0]
+    # Check for scheduled delay in a short-lived session.
+    # Retry briefly — the caller's transaction may not have committed yet
+    # when this task is dispatched via asyncio.create_task().
+    scheduled_after = None
+    for attempt in range(5):
+        async with async_session_factory() as db:
+            result = await db.execute(select(Job.scheduled_after).where(Job.id == job_id))
+            row = result.one_or_none()
+            if row is not None:
+                scheduled_after = row[0]
+                break
+        await asyncio.sleep(0.5)
+    else:
+        logger.error("Job %s not found after retries", job_id)
+        return
 
     if scheduled_after is not None:
         delay = (scheduled_after - datetime.now(timezone.utc)).total_seconds()
@@ -322,6 +330,82 @@ async def run_bootstrap_account(job: Job, db: AsyncSession) -> None:
         emit_job_updated(str(job.id), str(account.id))
 
 
+async def sync_account_metadata(account: Account, db: AsyncSession) -> None:
+    """Sync alias, color, and role drift for a single account."""
+    # Fetch alias and color concurrently
+    alias_result, color_result = await asyncio.gather(
+        aws.get_account_alias(account.aws_account_id),
+        aws.get_account_color(account.aws_account_id),
+        return_exceptions=True,
+    )
+
+    if isinstance(alias_result, Exception):
+        logger.warning("Failed to fetch alias for %s: %s", account.aws_account_id, alias_result)
+    else:
+        account.alias = alias_result
+
+    if isinstance(color_result, Exception):
+        logger.warning("Failed to fetch color for %s: %s", account.aws_account_id, color_result)
+    else:
+        account.color = color_result
+
+    db.add(account)
+
+    # Fetch role metadata concurrently
+    result = await db.execute(
+        select(Role).where(Role.account_id == account.id, Role.status == "active")
+    )
+    active_roles = list(result.scalars().all())
+
+    if active_roles:
+        metadata_results = await asyncio.gather(
+            *[
+                aws.get_iam_role_metadata(account.aws_account_id, role.role_name)
+                for role in active_roles
+            ],
+            return_exceptions=True,
+        )
+
+        for role, meta in zip(active_roles, metadata_results):
+            if isinstance(meta, Exception):
+                logger.warning("Failed to fetch metadata for role %s: %s", role.role_name, meta)
+                continue
+
+            if not meta["exists"]:
+                role.status = "drifted"
+                role.error_message = "Role not found in AWS"
+                db.add(role)
+                continue
+
+            # Check for drift
+            expected_max_duration = max(role.api_session_duration, role.console_session_duration)
+            actual_policies = sorted(meta["attached_policy_arns"])
+            expected_policies = sorted(role.managed_policy_arns)
+
+            drifted = False
+            drift_reasons = []
+
+            if meta["max_session_duration"] != expected_max_duration:
+                drifted = True
+                drift_reasons.append("max session duration changed")
+
+            if actual_policies != expected_policies:
+                drifted = True
+                drift_reasons.append("managed policies changed")
+
+            if drifted:
+                role.status = "drifted"
+                role.error_message = "Drift detected: " + ", ".join(drift_reasons)
+
+            # Update last_used_at if available
+            if meta["last_used"] is not None:
+                role.last_used_at = meta["last_used"]
+
+            db.add(role)
+
+    await db.flush()
+
+
 async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
     """Discover org accounts, import/reconcile, and bootstrap active ones.
 
@@ -428,6 +512,31 @@ async def run_sync_accounts(job: Job, db: AsyncSession) -> None:
 
                 if aws_status != "ACTIVE":
                     counts["skipped_suspended"] += 1
+
+        # Phase 2: Sync metadata (alias, color, role drift) — staggered
+        result = await db.execute(
+            select(Account).where(
+                Account.status == "active",
+                Account.aws_account_id.isnot(None),
+            )
+        )
+        active_accounts = list(result.scalars().all())
+
+        if active_accounts and settings.sync_interval_minutes > 0:
+            delay = (settings.sync_interval_minutes * 60) / len(active_accounts)
+            for i, acct in enumerate(active_accounts):
+                try:
+                    await sync_account_metadata(acct, db)
+                    await db.commit()
+                except Exception:
+                    logger.warning(
+                        "Metadata sync failed for account %s",
+                        acct.aws_account_id,
+                        exc_info=True,
+                    )
+                    await db.rollback()
+                if i < len(active_accounts) - 1:
+                    await asyncio.sleep(delay)
 
         job.status = "completed"
         job.completed_at = datetime.now(timezone.utc)

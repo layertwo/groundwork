@@ -10,6 +10,10 @@ from urllib.parse import quote
 
 import aioboto3
 import aiohttp
+import httpx
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+from botocore.credentials import Credentials
 from botocore.exceptions import ClientError
 
 from backend.config import settings
@@ -401,6 +405,164 @@ async def delete_iam_role(aws_account_id: str, role_name: str) -> None:
             raise
 
     logger.info("Deleted IAM role %s from account %s", role_name, aws_account_id)
+
+
+# ---------------------------------------------------------------------------
+# Account alias management
+# ---------------------------------------------------------------------------
+
+
+async def get_account_alias(aws_account_id: str) -> str | None:
+    """Get the IAM account alias for a member account.
+
+    Returns the alias string, or None if no alias is set.
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+    async with target_session.client("iam") as iam:
+        resp = await iam.list_account_aliases()
+        aliases = resp.get("AccountAliases", [])
+        return aliases[0] if aliases else None
+
+
+async def set_account_alias(aws_account_id: str, alias: str) -> None:
+    """Set the IAM account alias for a member account.
+
+    AWS only allows one alias per account; creating a new alias overwrites
+    the previous one.
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+    async with target_session.client("iam") as iam:
+        await iam.create_account_alias(AccountAlias=alias)
+    logger.info("Set account alias '%s' for account %s", alias, aws_account_id)
+
+
+async def delete_account_alias(aws_account_id: str, alias: str) -> None:
+    """Delete the IAM account alias for a member account."""
+    target_session = await assume_groundwork_admin(aws_account_id)
+    async with target_session.client("iam") as iam:
+        await iam.delete_account_alias(AccountAlias=alias)
+    logger.info("Deleted account alias '%s' from account %s", alias, aws_account_id)
+
+
+async def get_iam_role_metadata(aws_account_id: str, role_name: str) -> dict:
+    """Get current IAM role metadata from a member account.
+
+    Returns dict with:
+    - exists: bool
+    - max_session_duration: int | None
+    - attached_policy_arns: list[str]
+    - last_used: datetime | None
+    """
+    target_session = await assume_groundwork_admin(aws_account_id)
+    async with target_session.client("iam") as iam:
+        try:
+            role_resp = await iam.get_role(RoleName=role_name)
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "NoSuchEntity":
+                return {
+                    "exists": False,
+                    "max_session_duration": None,
+                    "attached_policy_arns": [],
+                    "last_used": None,
+                }
+            raise
+
+        role_data = role_resp["Role"]
+        last_used = role_data.get("RoleLastUsed", {}).get("LastUsedDate")
+
+        policies_resp = await iam.list_attached_role_policies(RoleName=role_name)
+        policy_arns = [p["PolicyArn"] for p in policies_resp.get("AttachedPolicies", [])]
+
+        return {
+            "exists": True,
+            "max_session_duration": role_data.get("MaxSessionDuration"),
+            "attached_policy_arns": sorted(policy_arns),
+            "last_used": last_used,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Account color management (UXC service — no boto3 support)
+# ---------------------------------------------------------------------------
+
+UXC_ENDPOINT = "https://uxc.us-east-1.api.aws/v1/account-color"
+UXC_SERVICE = "uxc"
+UXC_REGION = "us-east-1"
+
+VALID_ACCOUNT_COLORS = frozenset(
+    {"none", "pink", "purple", "darkBlue", "lightBlue", "teal", "green", "yellow", "orange", "red"}
+)
+
+
+async def _get_uxc_credentials(aws_account_id: str) -> Credentials:
+    """Get STS credentials for UXC API calls in a member account.
+
+    Returns botocore Credentials directly from the STS AssumeRole response,
+    avoiding aioboto3 session credential resolution (which is async and
+    incompatible with botocore's sync SigV4Auth).
+    """
+    session = get_session()
+    role_arn = f"arn:aws:iam::{aws_account_id}:role/{settings.admin_role_name}"
+    async with session.client("sts") as sts:
+        assumed = await sts.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName="GroundworkUXC",
+        )
+    raw = assumed["Credentials"]
+    return Credentials(
+        access_key=raw["AccessKeyId"],
+        secret_key=raw["SecretAccessKey"],
+        token=raw["SessionToken"],
+    )
+
+
+async def _uxc_request(creds: Credentials, method: str, body: str | None = None) -> dict | None:
+    """Make a SigV4-signed request to the UXC service.
+
+    ``creds`` is a botocore Credentials object for the target account.
+    """
+    headers = {}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    aws_request = AWSRequest(method=method, url=UXC_ENDPOINT, data=body, headers=headers)
+    SigV4Auth(creds, UXC_SERVICE, UXC_REGION).add_auth(aws_request)
+
+    async with httpx.AsyncClient() as client:
+        response = await client.request(
+            method,
+            UXC_ENDPOINT,
+            headers=dict(aws_request.headers),
+            content=body,
+        )
+        response.raise_for_status()
+        return json.loads(response.content) if response.content else None
+
+
+async def get_account_color(aws_account_id: str) -> str | None:
+    """Get the console color for a member account.
+
+    Returns the color string (e.g. "red", "green"), or None if no color
+    is set (color is "none").
+    """
+    creds = await _get_uxc_credentials(aws_account_id)
+    result = await _uxc_request(creds, "GET")
+    color = result.get("color") if result else None
+    return None if color == "none" else color
+
+
+async def set_account_color(aws_account_id: str, color: str) -> None:
+    """Set the console color for a member account."""
+    creds = await _get_uxc_credentials(aws_account_id)
+    body = json.dumps({"color": color})
+    await _uxc_request(creds, "PUT", body)
+    logger.info("Set account color '%s' for account %s", color, aws_account_id)
+
+
+async def delete_account_color(aws_account_id: str) -> None:
+    """Delete the console color for a member account."""
+    creds = await _get_uxc_credentials(aws_account_id)
+    await _uxc_request(creds, "DELETE")
+    logger.info("Deleted account color from account %s", aws_account_id)
 
 
 # ---------------------------------------------------------------------------

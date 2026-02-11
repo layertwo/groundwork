@@ -134,6 +134,15 @@ export function deleteRole(
   })
 }
 
+export function fixDrift(
+  accountId: string,
+  roleId: string,
+): Promise<void> {
+  return apiFetch<void>(`/api/accounts/${accountId}/roles/${roleId}/fix-drift`, {
+    method: 'POST',
+  })
+}
+
 export function federate(
   awsAccountId: string,
   roleName: string,

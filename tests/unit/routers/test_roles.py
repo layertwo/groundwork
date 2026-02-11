@@ -491,6 +491,86 @@ class TestListRoles:
         assert data[0]["last_used_at"] is None
 
 
+class TestFixDrift:
+    async def test_fix_drift_creates_update_job(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="Drift Fix",
+            account_email=f"drift-fix-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="active",
+            aws_account_id="999999999999",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        role = Role(
+            account_id=account.id,
+            role_name="DriftedRole",
+            role_arn="arn:aws:iam::999999999999:role/DriftedRole",
+            status="drifted",
+            error_message="Drift detected: managed policies changed",
+            managed_policy_arns=["arn:aws:iam::aws:policy/ReadOnlyAccess"],
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
+            response = await client.post(
+                f"/api/accounts/{account.id}/roles/{role.id}/fix-drift",
+                cookies=_cookies(session_id),
+            )
+
+        assert response.status_code == 202
+
+        await db_session.refresh(role)
+        assert role.status == "updating"
+
+        result = await db_session.execute(
+            select(Job).where(
+                Job.account_id == account.id,
+                Job.job_type == "update_role",
+            )
+        )
+        job = result.scalar_one()
+        assert job.result["role_id"] == str(role.id)
+
+    async def test_fix_drift_rejects_non_drifted_role(self, client, db_session):
+        admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
+
+        account = Account(
+            account_name="No Drift",
+            account_email=f"no-drift-{id(db_session)}@example.com",
+            organizational_unit="ou-1234",
+            sso_user_email="sso@example.com",
+            created_by=admin.id,
+            status="active",
+            aws_account_id="888888888888",
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        role = Role(
+            account_id=account.id,
+            role_name="ActiveRole",
+            role_arn="arn:aws:iam::888888888888:role/ActiveRole",
+            status="active",
+            managed_policy_arns=[],
+        )
+        db_session.add(role)
+        await db_session.flush()
+
+        response = await client.post(
+            f"/api/accounts/{account.id}/roles/{role.id}/fix-drift",
+            cookies=_cookies(session_id),
+        )
+
+        assert response.status_code == 400
+
+
 # ---------------------------------------------------------------------------
 # Role template tests (carried over from Phase 1)
 # ---------------------------------------------------------------------------
