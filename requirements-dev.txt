@@ -8,4 +8,4 @@ isort==8.0.1
 flake8==7.3.0
 Flake8-pyproject==1.2.4
 mypy==1.20.0
-hypothesis==6.151.10
+hypothesis==6.151.11
