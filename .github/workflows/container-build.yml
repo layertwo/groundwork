@@ -2,10 +2,16 @@ name: Container Build
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Python Tests"]
-    types:
-      - completed
+  pull_request:
+  push:
+    branches: [ "mainline" ]
+    paths:
+      - 'backend/**'
+      - 'tests/**'
+      - '.github/workflows/container-build.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'Dockerfile'
 
 env:
   REGISTRY: ghcr.io
@@ -14,12 +20,6 @@ jobs:
 
   package:
     runs-on: ubuntu-latest
-    if: >-
-      (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       (github.event.workflow_run.event == 'pull_request' ||
-        github.event.workflow_run.head_branch == 'mainline'))
 
     permissions:
       contents: read

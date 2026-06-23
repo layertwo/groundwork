@@ -1,22 +1,15 @@
 name: Python Tests
 
 on:
-  push:
-    paths:
-      - 'backend/**'
-      - 'tests/**'
-      - '.github/workflows/python-tests.yml'
-      - 'requirements.txt'
-      - 'requirements-dev.txt'
-    branches: [ "mainline" ]
   pull_request:
+  push:
+    branches: [ "mainline" ]
     paths:
       - 'backend/**'
       - 'tests/**'
       - '.github/workflows/python-tests.yml'
-      - 'requirements.txt'
-      - 'requirements-dev.txt'
-    branches: [ "mainline" ]
+      - 'pyproject.toml'
+      - 'uv.lock'
 
 jobs:
   test:
@@ -50,37 +43,32 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-          cache-dependency-path: 'requirements-dev.txt'
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements-dev.txt
+        run: uv sync --frozen --all-extras --all-groups
 
       - name: Run database migrations
-        run: |
-          alembic upgrade head
+        run: uv run alembic upgrade head
 
       - name: Check code formatting with black
-        run: |
-          black --check --diff backend/ tests/
+        run: uv run black --check --diff backend/ tests/
 
       - name: Check import sorting with isort
-        run: |
-          isort --check-only --diff backend/ tests/
+        run: uv run isort --check-only --diff backend/ tests/
 
       - name: Run flake8 linting
-        run: |
-          flake8 backend/ tests/
+        run: uv run flake8 backend/ tests/
 
-      - name: Run tests with coverage
-        run: |
-          pytest
+      - name: Run unit tests
+        run: uv run pytest
         env:
           COVERAGE_FILE: .coverage.${{ matrix.python-version }}
 
