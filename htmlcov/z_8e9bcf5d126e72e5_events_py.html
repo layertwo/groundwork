@@ -66,8 +66,8 @@
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a id="nextFileLink" class="nav" href="z_8e9bcf5d126e72e5_jobs_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
-            <a class="nav" href="https://coverage.readthedocs.io/en/7.14.2">coverage.py v7.14.2</a>,
-            created at 2026-06-23 06:00 +0000
+            <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
+            created at 2026-08-20 06:05 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -82,7 +82,7 @@
     </div>
 </header>
 <main id="source">
-    <p class="pln"><span class="n"><a id="t1" href="#t1">1</a></span><span class="t"><span class="str">"""SSE endpoint for real-time event streaming to authenticated clients."""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1" href="#t1">1</a></span><span class="t"><span class="str">&quot;&quot;&quot;SSE endpoint for real-time event streaming to authenticated clients.&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t2" href="#t2">2</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t3" href="#t3">3</a></span><span class="t"><span class="key">import</span> <span class="nam">asyncio</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t4" href="#t4">4</a></span><span class="t"><span class="key">import</span> <span class="nam">logging</span>&nbsp;</span><span class="r"></span></p>
@@ -98,16 +98,16 @@
     <p class="pln"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="nam">logger</span> <span class="op">=</span> <span class="nam">logging</span><span class="op">.</span><span class="nam">getLogger</span><span class="op">(</span><span class="nam">__name__</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="nam">router</span> <span class="op">=</span> <span class="nam">APIRouter</span><span class="op">(</span><span class="nam">prefix</span><span class="op">=</span><span class="str">"/api"</span><span class="op">,</span> <span class="nam">tags</span><span class="op">=</span><span class="op">[</span><span class="str">"events"</span><span class="op">]</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="nam">router</span> <span class="op">=</span> <span class="nam">APIRouter</span><span class="op">(</span><span class="nam">prefix</span><span class="op">=</span><span class="str">&quot;/api&quot;</span><span class="op">,</span> <span class="nam">tags</span><span class="op">=</span><span class="op">[</span><span class="str">&quot;events&quot;</span><span class="op">]</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t"><span class="com"># Re-validate the session every ~5 minutes (20 heartbeats * 15s timeout)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t"><span class="nam">_REAUTH_EVERY_N_HEARTBEATS</span> <span class="op">=</span> <span class="num">20</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="op">@</span><span class="nam">router</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"/events"</span><span class="op">,</span> <span class="nam">response_model</span><span class="op">=</span><span class="key">None</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t"><span class="key">async</span> <span class="key">def</span> <span class="nam">event_stream</span><span class="op">(</span><span class="nam">request</span><span class="op">:</span> <span class="nam">Request</span><span class="op">)</span> <span class="op">-></span> <span class="nam">Response</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t">    <span class="str">"""SSE endpoint &#8212; validates session then streams events."""</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t">    <span class="com"># Authenticate with a short-lived DB session so we don't hold a connection</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="op">@</span><span class="nam">router</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&quot;/events&quot;</span><span class="op">,</span> <span class="nam">response_model</span><span class="op">=</span><span class="key">None</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t"><span class="key">async</span> <span class="key">def</span> <span class="nam">event_stream</span><span class="op">(</span><span class="nam">request</span><span class="op">:</span> <span class="nam">Request</span><span class="op">)</span> <span class="op">-&gt;</span> <span class="nam">Response</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t">    <span class="str">&quot;&quot;&quot;SSE endpoint &#8212; validates session then streams events.&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t">    <span class="com"># Authenticate with a short-lived DB session so we don&#x27;t hold a connection</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t">    <span class="com"># while streaming.</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t28" href="#t28">28</a></span><span class="t">    <span class="key">async</span> <span class="key">with</span> <span class="nam">async_session_factory</span><span class="op">(</span><span class="op">)</span> <span class="key">as</span> <span class="nam">db</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t29" href="#t29">29</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -119,7 +119,7 @@
     <p class="mis show_mis"><span class="n"><a id="t35" href="#t35">35</a></span><span class="t">    <span class="key">if</span> <span class="nam">queue</span> <span class="key">is</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t36" href="#t36">36</a></span><span class="t">        <span class="key">return</span> <span class="nam">JSONResponse</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t37" href="#t37">37</a></span><span class="t">            <span class="nam">status_code</span><span class="op">=</span><span class="num">503</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t38" href="#t38">38</a></span><span class="t">            <span class="nam">content</span><span class="op">=</span><span class="op">{</span><span class="str">"detail"</span><span class="op">:</span> <span class="str">"Too many concurrent event streams"</span><span class="op">}</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t38" href="#t38">38</a></span><span class="t">            <span class="nam">content</span><span class="op">=</span><span class="op">{</span><span class="str">&quot;detail&quot;</span><span class="op">:</span> <span class="str">&quot;Too many concurrent event streams&quot;</span><span class="op">}</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t39" href="#t39">39</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t40" href="#t40">40</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t41" href="#t41">41</a></span><span class="t">    <span class="key">async</span> <span class="key">def</span> <span class="nam">generate</span><span class="op">(</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -132,9 +132,9 @@
     <p class="mis show_mis"><span class="n"><a id="t48" href="#t48">48</a></span><span class="t">                    <span class="nam">message</span> <span class="op">=</span> <span class="key">await</span> <span class="nam">asyncio</span><span class="op">.</span><span class="nam">wait_for</span><span class="op">(</span><span class="nam">queue</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="op">)</span><span class="op">,</span> <span class="nam">timeout</span><span class="op">=</span><span class="num">15</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t49" href="#t49">49</a></span><span class="t">                    <span class="key">yield</span> <span class="nam">message</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t50" href="#t50">50</a></span><span class="t">                <span class="key">except</span> <span class="nam">asyncio</span><span class="op">.</span><span class="nam">TimeoutError</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t51" href="#t51">51</a></span><span class="t">                    <span class="key">yield</span> <span class="str">": heartbeat\n\n"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t51" href="#t51">51</a></span><span class="t">                    <span class="key">yield</span> <span class="str">&quot;: heartbeat\n\n&quot;</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t52" href="#t52">52</a></span><span class="t">                    <span class="nam">heartbeats_since_reauth</span> <span class="op">+=</span> <span class="num">1</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t53" href="#t53">53</a></span><span class="t">                    <span class="key">if</span> <span class="nam">heartbeats_since_reauth</span> <span class="op">>=</span> <span class="nam">_REAUTH_EVERY_N_HEARTBEATS</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t53" href="#t53">53</a></span><span class="t">                    <span class="key">if</span> <span class="nam">heartbeats_since_reauth</span> <span class="op">&gt;=</span> <span class="nam">_REAUTH_EVERY_N_HEARTBEATS</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t54" href="#t54">54</a></span><span class="t">                        <span class="nam">heartbeats_since_reauth</span> <span class="op">=</span> <span class="num">0</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t55" href="#t55">55</a></span><span class="t">                        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t56" href="#t56">56</a></span><span class="t">                            <span class="key">async</span> <span class="key">with</span> <span class="nam">async_session_factory</span><span class="op">(</span><span class="op">)</span> <span class="key">as</span> <span class="nam">db</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -146,10 +146,10 @@
     <p class="pln"><span class="n"><a id="t62" href="#t62">62</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t63" href="#t63">63</a></span><span class="t">    <span class="key">return</span> <span class="nam">StreamingResponse</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t64" href="#t64">64</a></span><span class="t">        <span class="nam">generate</span><span class="op">(</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t65" href="#t65">65</a></span><span class="t">        <span class="nam">media_type</span><span class="op">=</span><span class="str">"text/event-stream"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t65" href="#t65">65</a></span><span class="t">        <span class="nam">media_type</span><span class="op">=</span><span class="str">&quot;text/event-stream&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t66" href="#t66">66</a></span><span class="t">        <span class="nam">headers</span><span class="op">=</span><span class="op">{</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t67" href="#t67">67</a></span><span class="t">            <span class="str">"Cache-Control"</span><span class="op">:</span> <span class="str">"no-cache"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t68" href="#t68">68</a></span><span class="t">            <span class="str">"X-Accel-Buffering"</span><span class="op">:</span> <span class="str">"no"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t67" href="#t67">67</a></span><span class="t">            <span class="str">&quot;Cache-Control&quot;</span><span class="op">:</span> <span class="str">&quot;no-cache&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t68" href="#t68">68</a></span><span class="t">            <span class="str">&quot;X-Accel-Buffering&quot;</span><span class="op">:</span> <span class="str">&quot;no&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t69" href="#t69">69</a></span><span class="t">        <span class="op">}</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t70" href="#t70">70</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
 </main>
@@ -160,8 +160,8 @@
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a class="nav" href="z_8e9bcf5d126e72e5_jobs_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
-            <a class="nav" href="https://coverage.readthedocs.io/en/7.14.2">coverage.py v7.14.2</a>,
-            created at 2026-06-23 06:00 +0000
+            <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
+            created at 2026-08-20 06:05 +0000
         </p>
     </div>
 </footer>
