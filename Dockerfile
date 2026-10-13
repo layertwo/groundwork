@@ -6,7 +6,7 @@ RUN npm ci
 COPY frontend/ .
 RUN npm run build
 
-FROM python:3.14-slim-trixie AS builder
+FROM python:3.15-slim-trixie AS builder
 
 # Copy uv binary from the official image (faster than `pip install uv`)
 COPY --from=ghcr.io/astral-sh/uv:0.11.17 /uv /uvx /bin/
@@ -34,7 +34,7 @@ COPY alembic/ alembic/
 # dependency is already present from the layer above.
 RUN uv sync --frozen --no-dev --no-editable
 
-FROM python:3.14-slim-trixie AS runtime
+FROM python:3.15-slim-trixie AS runtime
 
 WORKDIR /app
 ENV PYTHONPATH=/app
