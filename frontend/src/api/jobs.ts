@@ -1,31 +1,36 @@
 import { apiFetch } from './client'
 
+// Wire shapes mirror smithy/models/jobs.smithy (camelCase).
+
 export interface JobResponse {
   id: string
-  account_id: string | null
-  job_type: string
+  accountId: string | null
+  jobType: string
   status: string
-  started_by: string
-  started_at: string | null
-  completed_at: string | null
+  startedBy: string
+  startedAt: string | null
+  completedAt: string | null
   result: Record<string, unknown> | null
-  error_message: string | null
-  created_at: string
+  errorMessage: string | null
+  createdAt: string
+  scheduledAfter: string | null
 }
 
 export interface JobFilters {
-  account_id?: string
+  accountId?: string
   status?: string
-  job_type?: string
+  jobType?: string
 }
 
 export function listJobs(filters?: JobFilters): Promise<JobResponse[]> {
   const params = new URLSearchParams()
-  if (filters?.account_id) params.set('account_id', filters.account_id)
+  if (filters?.accountId) params.set('accountId', filters.accountId)
   if (filters?.status) params.set('status', filters.status)
-  if (filters?.job_type) params.set('job_type', filters.job_type)
+  if (filters?.jobType) params.set('jobType', filters.jobType)
   const qs = params.toString()
-  return apiFetch<JobResponse[]>(`/api/jobs${qs ? `?${qs}` : ''}`)
+  return apiFetch<{ jobs: JobResponse[] }>(`/api/jobs${qs ? `?${qs}` : ''}`).then(
+    (data) => data.jobs,
+  )
 }
 
 export function getJob(id: string): Promise<JobResponse> {
@@ -33,7 +38,7 @@ export function getJob(id: string): Promise<JobResponse> {
 }
 
 export interface JobCreate {
-  job_type: string
+  jobType: string
 }
 
 export function createJob(data: JobCreate): Promise<JobResponse> {

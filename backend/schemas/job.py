@@ -1,25 +1,20 @@
-from datetime import datetime
-from typing import Any, Optional
-from uuid import UUID
+"""Job request/response models, generated from ``smithy/models/jobs.smithy``."""
 
-from pydantic import BaseModel, Field
+from backend.schemas.generated.models import (
+    CreateJobRequestContent,
+    CreateJobResponseContent,
+    GetJobResponseContent,
+    ListJobsResponseContent,
+)
 
+__all__ = [
+    "JobCreate",
+    "JobListResponse",
+    "JobResponse",
+    "CreateJobResponse",
+]
 
-class JobCreate(BaseModel):
-    job_type: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
-
-
-class JobResponse(BaseModel):
-    id: UUID
-    account_id: Optional[UUID]
-    job_type: str
-    status: str
-    started_by: UUID
-    started_at: Optional[datetime]
-    completed_at: Optional[datetime]
-    result: Optional[dict[str, Any]]
-    error_message: Optional[str]
-    created_at: datetime
-    scheduled_after: Optional[datetime]
-
-    model_config = {"from_attributes": True}
+JobCreate = CreateJobRequestContent
+JobResponse = GetJobResponseContent
+CreateJobResponse = CreateJobResponseContent
+JobListResponse = ListJobsResponseContent

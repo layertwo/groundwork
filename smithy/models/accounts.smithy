@@ -2,56 +2,57 @@ $version: "2.0"
 
 namespace layertwo.groundwork
 
-use aws.protocols#restJson1
-
-/// Groundwork control plane: provisions and manages AWS accounts and IAM roles.
-///
-/// Operations are added per resource as routes migrate to the generated models.
-/// `GET /api/accounts` (bare array response) is not modelled yet: restJson1
-/// cannot express a top-level array body without wrapping it in a structure.
-@restJson1
-@title("Groundwork API")
-service Groundwork {
-    version: "2026-10-21"
-    operations: [CreateAccount, GetAccount, UpdateAccount]
+// ============================================================================
+// Account Resource
+// ============================================================================
+@documentation("An AWS account registered with Groundwork")
+resource Account {
+    identifiers: {
+        id: String
+    }
+    create: CreateAccount
+    read: GetAccount
+    update: UpdateAccount
+    list: ListAccounts
 }
 
+// ============================================================================
+// Account Operations
+// ============================================================================
 @http(method: "POST", uri: "/api/accounts", code: 201)
 operation CreateAccount {
-    input: AccountCreate
-    output: AccountResponse
+    input: CreateAccountInput
+    output: CreateAccountOutput
 }
 
 @readonly
-@http(method: "GET", uri: "/api/accounts/{accountId}")
+@http(method: "GET", uri: "/api/accounts/{id}")
 operation GetAccount {
-    input := {
-        @required
-        @httpLabel
-        accountId: String
-    }
-    output: AccountResponse
+    input: GetAccountInput
+    output: GetAccountOutput
 }
 
-@http(method: "PATCH", uri: "/api/accounts/{accountId}")
+@http(method: "PATCH", uri: "/api/accounts/{id}")
 operation UpdateAccount {
-    input := {
-        @required
-        @httpLabel
-        accountId: String
-
-        @httpPayload
-        body: AccountUpdate
-    }
-    output: AccountResponse
+    input: UpdateAccountInput
+    output: UpdateAccountOutput
 }
 
+@readonly
+@http(method: "GET", uri: "/api/accounts")
+operation ListAccounts {
+    output: ListAccountsOutput
+}
+
+// ============================================================================
+// Account Shapes
+// ============================================================================
 /// Request body for creating an AWS account.
 ///
 /// Email fields are plain strings: Smithy has no email trait, so `format: email`
-/// cannot be expressed here. `backend/schemas/validators.py` re-applies EmailStr
-/// to the generated models.
-structure AccountCreate {
+/// cannot be expressed here. `backend/schemas/account.py` re-applies EmailStr
+/// to the generated model.
+structure CreateAccountInput {
     @required
     @length(min: 1, max: 50)
     accountName: String
@@ -70,9 +71,18 @@ structure AccountCreate {
     ssoUserEmail: String
 }
 
-/// Request body for updating an AWS account. Every field is optional; omitted
-/// fields are left untouched.
-structure AccountUpdate {
+structure GetAccountInput {
+    @required
+    @httpLabel
+    id: String
+}
+
+/// Request body for updating an AWS account. Omitted fields are left untouched.
+structure UpdateAccountInput {
+    @required
+    @httpLabel
+    id: String
+
     @length(min: 1, max: 50)
     accountName: String
 
@@ -93,8 +103,21 @@ structure AccountUpdate {
     color: String
 }
 
-/// An AWS account registered with Groundwork.
-structure AccountResponse {
+structure ListAccountsOutput {
+    @required
+    accounts: AccountList
+}
+
+list AccountList {
+    member: AccountResponse
+}
+
+// ============================================================================
+// Account Data
+// ============================================================================
+/// Fields returned for a single account.
+@mixin
+structure AccountFields {
     @required
     id: String
 
@@ -136,3 +159,8 @@ structure AccountResponse {
     alias: String
     color: String
 }
+
+structure CreateAccountOutput with [AccountFields] {}
+structure GetAccountOutput with [AccountFields] {}
+structure UpdateAccountOutput with [AccountFields] {}
+structure AccountResponse with [AccountFields] {}

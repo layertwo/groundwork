@@ -82,7 +82,7 @@ export default function Dashboard() {
   const queryClient = useQueryClient()
 
   const syncMutation = useMutation({
-    mutationFn: () => createJob({ job_type: 'sync_accounts' }),
+    mutationFn: () => createJob({ jobType: 'sync_accounts' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       navigate('/jobs')
