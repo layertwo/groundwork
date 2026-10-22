@@ -12,7 +12,7 @@ smithy {
 }
 
 dependencies {
-    smithyBuild("software.amazon.smithy:smithy-aws-traits:1.74.0")
-    smithyBuild("software.amazon.smithy:smithy-openapi:1.74.0")
+    smithyBuild("software.amazon.smithy:smithy-aws-traits:1.74.1")
+    smithyBuild("software.amazon.smithy:smithy-openapi:1.74.1")
     smithyBuild("software.amazon.smithy.typescript:smithy-aws-typescript-codegen:0.54.0")
 }

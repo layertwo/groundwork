@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk AS smithy
+FROM eclipse-temurin:25-jdk AS smithy
 
 WORKDIR /app
 COPY smithy/ smithy/
@@ -22,7 +22,7 @@ RUN npm run build
 FROM python:3.14-slim-trixie AS builder
 
 # Copy uv binary from the official image (faster than `pip install uv`)
-COPY --from=ghcr.io/astral-sh/uv:0.11.17 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /bin/
 
 WORKDIR /app
 
