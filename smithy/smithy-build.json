@@ -1,6 +1,8 @@
 {
   "version": "1.0",
-  "sources": ["models"],
+  "sources": [
+    "models"
+  ],
   "maven": {
     "dependencies": []
   },
@@ -13,6 +15,18 @@
           "version": "3.0.2",
           "useIntegerType": true,
           "disableCloudFormationSubstitution": true
+        }
+      }
+    },
+    "typescript": {
+      "plugins": {
+        "typescript-client-codegen": {
+          "package": "@groundwork/client",
+          "packageVersion": "0.1.0",
+          "service": "layertwo.groundwork#Groundwork",
+          "protocol": "aws.protocols#restJson1",
+          "requiredMemberMode": "strict",
+          "packageManager": "npm"
         }
       }
     }

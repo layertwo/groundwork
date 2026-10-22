@@ -13,7 +13,8 @@ import { Button } from '@/components/ui/button'
 import CredentialsDialog from './CredentialsDialog'
 import { federate } from '@/api/roles'
 import { ApiError } from '@/api/client'
-import type { RoleResponse, AssumeRoleResponse, ConsoleUrlResponse } from '@/api/roles'
+import type { AssumeRoleResponse, ConsoleUrlResponse } from '@/api/roles'
+import type { RoleResponse } from '@groundwork/client'
 
 interface FederateDropdownProps {
   accountName: string

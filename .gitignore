@@ -52,3 +52,6 @@ htmlcov/
 
 # Smithy codegen output (scripts/codegen.sh)
 backend/schemas/generated/models.py
+
+# Generated Smithy TS client (scripts/codegen.sh)
+packages/client/

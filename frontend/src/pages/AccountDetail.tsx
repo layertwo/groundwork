@@ -57,7 +57,8 @@ import { listJobs } from '@/api/jobs'
 import SearchInput from '@/components/SearchInput'
 import CredentialsDialog from '@/components/CredentialsDialog'
 import RoleEditDialog from '@/components/RoleEditDialog'
-import type { AssumeRoleResponse, ConsoleUrlResponse, RoleResponse } from '@/api/roles'
+import type { AssumeRoleResponse, ConsoleUrlResponse } from '@/api/roles'
+import type { RoleResponse } from '@groundwork/client'
 
 function statusVariant(status: string) {
   switch (status) {
@@ -72,7 +73,8 @@ function statusVariant(status: string) {
   }
 }
 
-function relativeTime(iso: string): string {
+function relativeTime(value: string | Date): string {
+  const iso = typeof value === 'string' ? value : value.toISOString()
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'just now'
@@ -105,7 +107,7 @@ export default function AccountDetail() {
   const [aliasValue, setAliasValue] = useState('')
 
   const aliasMutation = useMutation({
-    mutationFn: (alias: string) => updateAccount(id!, { alias }),
+    mutationFn: (alias: string) => updateAccount({ id: id!, alias }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['account', id] })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
@@ -118,7 +120,7 @@ export default function AccountDetail() {
   })
 
   const colorMutation = useMutation({
-    mutationFn: (color: string) => updateAccount(id!, { color }),
+    mutationFn: (color: string) => updateAccount({ id: id!, color }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['account', id] })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
@@ -160,8 +162,8 @@ export default function AccountDetail() {
       (r) =>
         r.roleName.toLowerCase().includes(q) ||
         (r.description ?? '').toLowerCase().includes(q) ||
-        r.allowedGroups.some((g) => g.toLowerCase().includes(q)) ||
-        r.allowedUsers.some((u) => u.toLowerCase().includes(q))
+        (r.allowedGroups ?? []).some((g) => g.toLowerCase().includes(q)) ||
+        (r.allowedUsers ?? []).some((u) => u.toLowerCase().includes(q))
     )
   }, [roles, roleSearch])
 
@@ -236,7 +238,8 @@ export default function AccountDetail() {
     if (!id) return
     setCreating(true)
     try {
-      await createRole(id, {
+      await createRole({
+        accountId: id,
         roleName: templateName,
         templateId: templateId,
       })
@@ -544,8 +547,8 @@ export default function AccountDetail() {
                   <div>
                     <span className="text-xs text-muted-foreground">Groups</span>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {role.allowedGroups.length > 0
-                        ? role.allowedGroups.map((g) => (
+                      {(role.allowedGroups ?? []).length > 0
+                        ? (role.allowedGroups ?? []).map((g) => (
                             <Badge key={g} variant="outline" className="text-xs">
                               {g}
                             </Badge>
@@ -556,8 +559,8 @@ export default function AccountDetail() {
                   <div>
                     <span className="text-xs text-muted-foreground">Users</span>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {role.allowedUsers.length > 0
-                        ? role.allowedUsers.map((u) => (
+                      {(role.allowedUsers ?? []).length > 0
+                        ? (role.allowedUsers ?? []).map((u) => (
                             <Badge key={u} variant="outline" className="text-xs">
                               {u}
                             </Badge>
@@ -565,11 +568,11 @@ export default function AccountDetail() {
                         : <span className="text-xs text-muted-foreground">—</span>}
                     </div>
                   </div>
-                  {role.managedPolicyArns.length > 0 && (
+                  {(role.managedPolicyArns ?? []).length > 0 && (
                     <div>
                       <span className="text-xs text-muted-foreground">Policies</span>
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {role.managedPolicyArns.map((arn) => (
+                        {(role.managedPolicyArns ?? []).map((arn) => (
                           <HoverCard key={arn} openDelay={200} closeDelay={0}>
                             <HoverCardTrigger asChild>
                               <Badge variant="secondary" className="text-xs cursor-default">
