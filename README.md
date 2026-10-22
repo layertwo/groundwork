@@ -22,13 +22,12 @@
 | backend/models/user.py               |       28 |        0 |        0 |        0 |    100% |           |
 | backend/routers/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100% |           |
 | backend/routers/accounts.py          |       86 |        4 |       24 |        3 |     94% |69-71, 127, 144-\>143, 150-\>152 |
-| backend/routers/audit.py             |       27 |        2 |        8 |        2 |     89% |    30, 32 |
+| backend/routers/audit.py             |       27 |        2 |        8 |        2 |     89% |    37, 39 |
 | backend/routers/auth.py              |      117 |        8 |       22 |        5 |     91% |79-87, 158-\>174, 161-\>174, 198, 207, 213-215 |
 | backend/routers/events.py            |       43 |       29 |        6 |        0 |     29% |     28-63 |
 | backend/routers/jobs.py              |       52 |        2 |       16 |        2 |     94% |    89, 93 |
 | backend/routers/roles.py             |      232 |       10 |       66 |       10 |     93% |78, 97, 164, 171, 199-200, 261, 324, 335, 410, 573-\>572 |
 | backend/schemas/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100% |           |
-| backend/schemas/audit.py             |       16 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/auth.py              |        8 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/common.py            |        6 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/federate.py          |        3 |        0 |        0 |        0 |    100% |           |
@@ -42,7 +41,7 @@
 | backend/services/jobs.py             |      486 |      130 |      104 |       15 |     72% |80-141, 164-169, 200-\>189, 203, 277-282, 343, 348, 371-372, 389-390, 486-487, 489-490, 492-493, 514, 526-539, 561-577, 738-800, 887, 892 |
 | backend/services/oidc.py             |       79 |       26 |        4 |        0 |     69% |58-69, 94-124, 128-139 |
 | backend/services/system\_user.py     |       14 |        0 |        2 |        0 |    100% |           |
-| **TOTAL**                            | **2003** |  **369** |  **384** |   **54** | **79%** |           |
+| **TOTAL**                            | **1987** |  **369** |  **384** |   **54** | **79%** |           |
 
 
 ## Setup coverage badge
