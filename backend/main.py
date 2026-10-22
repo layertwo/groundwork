@@ -5,15 +5,16 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.config import settings
-from backend.database import async_session_factory, engine
+from backend.database import async_session_factory, engine, get_db
 from backend.exceptions import register_exception_handlers
 from backend.models.job import Job
 from backend.models.user import User
@@ -200,15 +201,28 @@ app.include_router(audit.router)
 app.include_router(events.router)
 
 
-@app.get("/api/health", response_model=HealthResponse)
-async def health_check():
+@app.get(
+    "/api/health",
+    response_model=HealthResponse,
+    responses={503: {"model": HealthResponse}},
+)
+async def health_check(response: Response, db: AsyncSession = Depends(get_db)):
     db_status = "ok"
     try:
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-    except Exception:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:
+        # Type only: driver errors can embed the connection string.
+        logger.warning("Health check failed", extra={"error_type": type(exc).__name__})
         db_status = "error"
-    return HealthResponse(status="ok", version=VERSION, database=db_status)
+
+    if db_status != "ok":
+        response.status_code = 503
+
+    return HealthResponse(
+        status="ok" if db_status == "ok" else "error",
+        version=VERSION,
+        database=db_status,
+    )
 
 
 # Serve frontend static files if built
