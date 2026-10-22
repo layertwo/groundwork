@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk AS smithy
+FROM eclipse-temurin:25-jdk AS smithy
 
 WORKDIR /app
 COPY smithy/ smithy/
