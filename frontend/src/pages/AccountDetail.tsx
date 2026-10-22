@@ -177,7 +177,7 @@ export default function AccountDetail() {
     setLoading(roleName)
     try {
       const res = (await federate(
-        account!.aws_account_id!,
+        account!.awsAccountId!,
         roleName,
         'console',
       )) as ConsoleUrlResponse
@@ -199,7 +199,7 @@ export default function AccountDetail() {
     setLoading(roleName)
     try {
       const res = (await federate(
-        account!.aws_account_id!,
+        account!.awsAccountId!,
         roleName,
         'cli',
       )) as AssumeRoleResponse
@@ -278,41 +278,41 @@ export default function AccountDetail() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <CardTitle className="text-2xl">{account.account_name}</CardTitle>
+            <CardTitle className="text-2xl">{account.accountName}</CardTitle>
             <Badge variant={statusVariant(account.status)}>{account.status}</Badge>
-            {account.aws_status && account.aws_status !== 'ACTIVE' && (
-              <Badge variant="secondary">{account.aws_status.toLowerCase()}</Badge>
+            {account.awsStatus && account.awsStatus !== 'ACTIVE' && (
+              <Badge variant="secondary">{account.awsStatus.toLowerCase()}</Badge>
             )}
           </div>
-          {account.error_message && (
-            <p className="text-sm text-destructive">{account.error_message}</p>
+          {account.errorMessage && (
+            <p className="text-sm text-destructive">{account.errorMessage}</p>
           )}
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
             <div>
               <dt className="text-muted-foreground">AWS Account ID</dt>
-              <dd className="font-mono">{account.aws_account_id ?? '—'}</dd>
+              <dd className="font-mono">{account.awsAccountId ?? '—'}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Organizational Unit</dt>
-              <dd className="font-mono">{account.organizational_unit}</dd>
+              <dd className="font-mono">{account.organizationalUnit}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Email</dt>
-              <dd>{account.account_email}</dd>
+              <dd>{account.accountEmail}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">SSO User</dt>
-              <dd>{account.sso_user_email}</dd>
+              <dd>{account.ssoUserEmail}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Created</dt>
-              <dd>{new Date(account.created_at).toLocaleDateString()}</dd>
+              <dd>{new Date(account.createdAt).toLocaleDateString()}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Last Updated</dt>
-              <dd>{new Date(account.updated_at).toLocaleDateString()}</dd>
+              <dd>{new Date(account.updatedAt).toLocaleDateString()}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Account Alias</dt>
@@ -636,7 +636,7 @@ export default function AccountDetail() {
         onOpenChange={handleDialogChange}
         credentials={credentials}
         roleName={credentialsRoleName}
-        accountName={account.account_name}
+        accountName={account.accountName}
       />
 
       <RoleEditDialog

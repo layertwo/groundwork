@@ -16,6 +16,10 @@ docker compose up -d db
 PYTHONPATH=. alembic revision --autogenerate -m "description"
 PYTHONPATH=. alembic upgrade head
 
+# Smithy -> pydantic models (requires a JDK on PATH; models.py is gitignored,
+# so run this after checkout and after any smithy/ change)
+./scripts/codegen.sh
+
 # Run server
 GW_DEBUG=true PYTHONPATH=. uvicorn backend.main:app --reload --reload-dir backend
 

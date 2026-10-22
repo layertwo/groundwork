@@ -109,7 +109,7 @@ export default function RoleCreate() {
         to={`/accounts/${accountId}`}
         className="text-sm text-muted-foreground hover:underline"
       >
-        &larr; {account?.account_name ?? 'Account'}
+        &larr; {account?.accountName ?? 'Account'}
       </Link>
 
       <h1 className="text-2xl font-semibold tracking-tight">Create Role</h1>

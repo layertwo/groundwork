@@ -46,3 +46,9 @@ Thumbs.db
 coverage.xml
 htmlcov/
 .pytest_cache/
+
+# Gradle
+.gradle/
+
+# Smithy codegen output (scripts/codegen.sh)
+backend/schemas/generated/models.py

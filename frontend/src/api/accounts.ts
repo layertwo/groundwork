@@ -1,34 +1,36 @@
 import { apiFetch } from './client'
 
+// Wire shapes mirror smithy/models/accounts.smithy (camelCase).
+
 export interface AccountResponse {
   id: string
-  aws_account_id: string | null
-  account_name: string
-  account_email: string
-  organizational_unit: string
+  awsAccountId: string | null
+  accountName: string
+  accountEmail: string
+  organizationalUnit: string
   status: string
-  aws_status: string | null
-  sso_user_email: string
-  provisioned_product_id: string | null
-  created_by: string
-  error_message: string | null
-  created_at: string
-  updated_at: string
+  awsStatus: string | null
+  ssoUserEmail: string
+  provisionedProductId: string | null
+  createdBy: string
+  errorMessage: string | null
+  createdAt: string
+  updatedAt: string
   alias: string | null
   color: string | null
 }
 
 export interface AccountCreate {
-  account_name: string
-  account_email: string
-  organizational_unit: string
-  sso_user_email: string
+  accountName: string
+  accountEmail: string
+  organizationalUnit: string
+  ssoUserEmail: string
 }
 
 export interface AccountUpdate {
-  account_name?: string
-  organizational_unit?: string
-  sso_user_email?: string
+  accountName?: string
+  organizationalUnit?: string
+  ssoUserEmail?: string
   alias?: string
   color?: string
 }
