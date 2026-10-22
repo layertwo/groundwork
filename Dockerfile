@@ -1,6 +1,19 @@
+FROM eclipse-temurin:21-jdk AS smithy
+
+WORKDIR /app
+COPY smithy/ smithy/
+RUN ./smithy/gradlew smithyBuild --project-dir smithy -q
+
+FROM node:24-slim AS client
+
+WORKDIR /app/packages/client
+COPY --from=smithy /app/build/smithy/typescript/typescript-client-codegen/ ./
+RUN npm install && npm run build
+
 FROM node:24-slim AS frontend
 
 WORKDIR /app/frontend
+COPY --from=client /app/packages/client /app/packages/client
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ .

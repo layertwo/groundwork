@@ -11,6 +11,8 @@ on:
       - '.github/workflows/container-build.yml'
       - 'pyproject.toml'
       - 'uv.lock'
+      - 'smithy/**'
+      - 'frontend/**'
       - 'Dockerfile'
 
 env:

@@ -14,6 +14,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENAPI="$REPO_ROOT/build/smithy/openapi/openapi/Groundwork.openapi.json"
 GENERATED_DIR="$REPO_ROOT/backend/schemas/generated"
+CLIENT_DIR="$REPO_ROOT/packages/client"
 
 if ! command -v java >/dev/null 2>&1; then
   echo "error: java not found. Install a JDK and put it on PATH (or export JAVA_HOME)." >&2
@@ -46,4 +47,11 @@ echo "==> codegen: $OPENAPI -> $GENERATED_DIR/models.py"
   --target-python-version 3.14 \
   --disable-timestamp)
 
+echo "==> staging TS client into packages/client"
+rm -rf "$CLIENT_DIR/src"
+mkdir -p "$CLIENT_DIR"
+cp -R "$REPO_ROOT/build/smithy/typescript/typescript-client-codegen/." "$CLIENT_DIR/"
+
+echo "==> build the client before the frontend:"
+echo "    npm --prefix packages/client install && npm --prefix packages/client run build"
 echo "==> done"

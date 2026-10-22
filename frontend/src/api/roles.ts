@@ -1,57 +1,24 @@
+import {
+  CreateRoleCommand,
+  CreateRoleTemplateCommand,
+  DeleteRoleCommand,
+  DeleteRoleTemplateCommand,
+  FixRoleDriftCommand,
+  ListRolesCommand,
+  ListRoleTemplatesCommand,
+  UpdateRoleCommand,
+  UpdateRoleTemplateCommand,
+  type CreateRoleInput,
+  type CreateRoleTemplateInput,
+  type RoleResponse,
+  type RoleTemplateResponse,
+  type UpdateRoleInput,
+  type UpdateRoleTemplateInput,
+} from '@groundwork/client'
 import { apiFetch } from './client'
+import { client, request } from './sdk'
 
-// Wire shapes mirror smithy/models/roles.smithy and role_templates.smithy.
-
-export interface RoleResponse {
-  id: string
-  accountId: string
-  roleName: string
-  roleArn: string
-  status: string
-  errorMessage: string | null
-  allowedGroups: string[]
-  managedPolicyArns: string[]
-  inlinePolicy: Record<string, unknown> | null
-  allowedUsers: string[]
-  apiSessionDuration: number
-  consoleSessionDuration: number
-  description: string | null
-  createdAt: string
-  updatedAt: string
-  lastUsedAt: string | null
-}
-
-export interface RoleCreate {
-  roleName: string
-  templateId?: string | null
-  managedPolicyArns?: string[]
-  inlinePolicy?: Record<string, unknown> | null
-  allowedGroups?: string[]
-  allowedUsers?: string[]
-  apiSessionDuration?: number
-  consoleSessionDuration?: number
-  description?: string | null
-}
-
-export interface RoleUpdate {
-  managedPolicyArns?: string[]
-  inlinePolicy?: Record<string, unknown> | null
-  allowedGroups?: string[]
-  allowedUsers?: string[]
-  apiSessionDuration?: number
-  consoleSessionDuration?: number
-  description?: string | null
-}
-
-export interface RoleTemplateResponse {
-  id: string
-  name: string
-  description: string | null
-  managedPolicyArns: string[]
-  createdAt: string
-  updatedAt: string
-}
-
+// Federate is not modelled in Smithy (redirect / temporary credentials).
 export interface AssumeRoleResponse {
   access_key_id: string
   secret_access_key: string
@@ -64,87 +31,47 @@ export interface ConsoleUrlResponse {
 }
 
 export function listRoles(): Promise<RoleResponse[]> {
-  return apiFetch<{ roles: RoleResponse[] }>('/api/roles').then((data) => data.roles)
-}
-
-export interface RoleTemplateCreate {
-  name: string
-  description?: string | null
-  managedPolicyArns: string[]
-}
-
-export interface RoleTemplateUpdate {
-  name?: string
-  description?: string | null
-  managedPolicyArns?: string[]
-}
-
-export function getRoleTemplates(): Promise<RoleTemplateResponse[]> {
-  return apiFetch<{ templates: RoleTemplateResponse[] }>('/api/roles/templates').then(
-    (data) => data.templates,
+  return request(() => client.send(new ListRolesCommand({}))).then(
+    (out) => out.roles ?? [],
   )
 }
 
-export function createRoleTemplate(data: RoleTemplateCreate): Promise<RoleTemplateResponse> {
-  return apiFetch<RoleTemplateResponse>('/api/roles/templates', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
+export function getRoleTemplates(): Promise<RoleTemplateResponse[]> {
+  return request(() => client.send(new ListRoleTemplatesCommand({}))).then(
+    (out) => out.templates ?? [],
+  )
+}
+
+export function createRoleTemplate(
+  data: CreateRoleTemplateInput,
+): Promise<RoleTemplateResponse> {
+  return request(() => client.send(new CreateRoleTemplateCommand(data)))
 }
 
 export function updateRoleTemplate(
-  templateId: string,
-  data: RoleTemplateUpdate,
+  data: UpdateRoleTemplateInput,
 ): Promise<RoleTemplateResponse> {
-  return apiFetch<RoleTemplateResponse>(`/api/roles/templates/${templateId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  })
+  return request(() => client.send(new UpdateRoleTemplateCommand(data)))
 }
 
-export function deleteRoleTemplate(templateId: string): Promise<void> {
-  return apiFetch<void>(`/api/roles/templates/${templateId}`, {
-    method: 'DELETE',
-  })
+export async function deleteRoleTemplate(templateId: string): Promise<void> {
+  await request(() => client.send(new DeleteRoleTemplateCommand({ templateId })))
 }
 
-export function createRole(
-  accountId: string,
-  data: RoleCreate,
-): Promise<RoleResponse> {
-  return apiFetch<RoleResponse>(`/api/accounts/${accountId}/roles`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
+export function createRole(data: CreateRoleInput): Promise<RoleResponse> {
+  return request(() => client.send(new CreateRoleCommand(data)))
 }
 
-export function updateRole(
-  accountId: string,
-  roleId: string,
-  data: RoleUpdate,
-): Promise<RoleResponse> {
-  return apiFetch<RoleResponse>(`/api/accounts/${accountId}/roles/${roleId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  })
+export function updateRole(data: UpdateRoleInput): Promise<RoleResponse> {
+  return request(() => client.send(new UpdateRoleCommand(data)))
 }
 
-export function deleteRole(
-  accountId: string,
-  roleId: string,
-): Promise<void> {
-  return apiFetch<void>(`/api/accounts/${accountId}/roles/${roleId}`, {
-    method: 'DELETE',
-  })
+export async function deleteRole(accountId: string, roleId: string): Promise<void> {
+  await request(() => client.send(new DeleteRoleCommand({ accountId, roleId })))
 }
 
-export function fixDrift(
-  accountId: string,
-  roleId: string,
-): Promise<void> {
-  return apiFetch<void>(`/api/accounts/${accountId}/roles/${roleId}/fix-drift`, {
-    method: 'POST',
-  })
+export async function fixDrift(accountId: string, roleId: string): Promise<void> {
+  await request(() => client.send(new FixRoleDriftCommand({ accountId, roleId })))
 }
 
 export function federate(

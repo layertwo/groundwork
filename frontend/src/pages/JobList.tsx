@@ -34,9 +34,9 @@ function statusVariant(status: string) {
   }
 }
 
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleString()
+function formatDate(date: Date | null | undefined): string {
+  if (!date) return '—'
+  return date.toLocaleString()
 }
 
 export default function JobList() {

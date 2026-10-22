@@ -23,13 +23,13 @@ import SearchInput from '@/components/SearchInput'
 const ALL = '__all__'
 const PAGE_SIZE = 50
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleString()
+function formatDate(date: Date): string {
+  return date.toLocaleString()
 }
 
-function formatDetail(detail: Record<string, unknown> | null): string {
-  if (!detail || Object.keys(detail).length === 0) return '—'
-  return Object.entries(detail)
+function formatDetail(detail: unknown): string {
+  if (!detail || typeof detail !== 'object' || Object.keys(detail).length === 0) return '—'
+  return Object.entries(detail as Record<string, unknown>)
     .map(([key, value]) => {
       const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
       return `${key}=${text}`

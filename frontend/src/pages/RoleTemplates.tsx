@@ -42,7 +42,7 @@ import {
   updateRoleTemplate,
   deleteRoleTemplate,
 } from '@/api/roles'
-import type { RoleTemplateResponse } from '@/api/roles'
+import type { RoleTemplateResponse } from '@groundwork/client'
 import { ApiError } from '@/api/client'
 import SearchInput from '@/components/SearchInput'
 import TagInput from '@/components/TagInput'
@@ -83,7 +83,7 @@ export default function RoleTemplates() {
       (t) =>
         t.name.toLowerCase().includes(q) ||
         (t.description ?? '').toLowerCase().includes(q) ||
-        t.managedPolicyArns.some((a) => a.toLowerCase().includes(q))
+        (t.managedPolicyArns ?? []).some((a) => a.toLowerCase().includes(q))
     )
   }, [templates, search])
 
@@ -99,7 +99,7 @@ export default function RoleTemplates() {
     setForm({
       name: template.name,
       description: template.description ?? '',
-      managedPolicyArns: [...template.managedPolicyArns],
+      managedPolicyArns: [...(template.managedPolicyArns ?? [])],
     })
     setError('')
     setDialogOpen(true)
@@ -111,15 +111,16 @@ export default function RoleTemplates() {
     setSubmitting(true)
     try {
       if (editing) {
-        await updateRoleTemplate(editing.id, {
+        await updateRoleTemplate({
+          templateId: editing.id,
           name: form.name,
-          description: form.description || null,
+          description: form.description || undefined,
           managedPolicyArns: form.managedPolicyArns,
         })
       } else {
         await createRoleTemplate({
           name: form.name,
-          description: form.description || null,
+          description: form.description || undefined,
           managedPolicyArns: form.managedPolicyArns,
         })
       }
@@ -187,8 +188,8 @@ export default function RoleTemplates() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {template.managedPolicyArns.length > 0
-                        ? template.managedPolicyArns.map((arn) => (
+                      {(template.managedPolicyArns ?? []).length > 0
+                        ? (template.managedPolicyArns ?? []).map((arn) => (
                             <HoverCard key={arn} openDelay={200} closeDelay={0}>
                               <HoverCardTrigger asChild>
                                 <Badge variant="outline" className="text-xs font-mono cursor-default">

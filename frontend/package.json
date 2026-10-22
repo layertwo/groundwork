@@ -22,7 +22,8 @@
     "react-router-dom": "^7.13.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
-    "tailwindcss": "^4.2.0"
+    "tailwindcss": "^4.2.0",
+    "@groundwork/client": "file:../packages/client"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

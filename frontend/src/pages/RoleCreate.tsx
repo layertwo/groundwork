@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select'
 import TagInput from '@/components/TagInput'
 import { createRole, getRoleTemplates } from '@/api/roles'
+import type { CreateRoleInput } from '@groundwork/client'
 import { getAccount } from '@/api/accounts'
 import { ApiError } from '@/api/client'
 
@@ -82,16 +83,17 @@ export default function RoleCreate() {
         }
       }
 
-      await createRole(accountId, {
+      await createRole({
+        accountId,
         roleName: roleName,
-        templateId: mode === 'template' ? templateId : null,
+        templateId: (mode === 'template' ? templateId : undefined) ?? undefined,
         managedPolicyArns: mode === 'custom' ? managedPolicies : [],
-        inlinePolicy: parsedInlinePolicy,
+        inlinePolicy: (parsedInlinePolicy ?? undefined) as CreateRoleInput['inlinePolicy'],
         allowedGroups: allowedGroups,
         allowedUsers: allowedUsers,
         apiSessionDuration: apiSessionMinutes * 60,
         consoleSessionDuration: consoleSessionMinutes * 60,
-        description: description || null,
+        description: description || undefined,
       })
       await queryClient.invalidateQueries({ queryKey: ['roles'] })
       toast.success('Role created')

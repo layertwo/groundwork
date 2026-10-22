@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import TagInput from '@/components/TagInput'
 import { updateRole } from '@/api/roles'
 import { ApiError } from '@/api/client'
-import type { RoleResponse } from '@/api/roles'
+import type { RoleResponse, UpdateRoleInput } from '@groundwork/client'
 
 interface RoleEditDialogProps {
   open: boolean
@@ -45,10 +45,10 @@ export default function RoleEditDialog({
   useEffect(() => {
     if (role && open) {
       setDescription(role.description ?? '')
-      setManagedPolicies(role.managedPolicyArns)
+      setManagedPolicies(role.managedPolicyArns ?? [])
       setInlinePolicy(role.inlinePolicy ? JSON.stringify(role.inlinePolicy, null, 2) : '')
-      setAllowedGroups(role.allowedGroups)
-      setAllowedUsers(role.allowedUsers)
+      setAllowedGroups(role.allowedGroups ?? [])
+      setAllowedUsers(role.allowedUsers ?? [])
       setApiSessionMinutes(Math.round(role.apiSessionDuration / 60))
       setConsoleSessionMinutes(Math.round(role.consoleSessionDuration / 60))
       setError('')
@@ -92,10 +92,12 @@ export default function RoleEditDialog({
         }
       }
 
-      await updateRole(accountId, role.id, {
-        description: description || null,
+      await updateRole({
+        accountId,
+        roleId: role.id,
+        description: description || undefined,
         managedPolicyArns: managedPolicies,
-        inlinePolicy: parsedInlinePolicy,
+        inlinePolicy: (parsedInlinePolicy ?? undefined) as UpdateRoleInput['inlinePolicy'],
         allowedGroups: allowedGroups,
         allowedUsers: allowedUsers,
         apiSessionDuration: apiSessionMinutes * 60,
