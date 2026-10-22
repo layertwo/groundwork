@@ -12,8 +12,6 @@ from backend.models.job import Job
 from backend.models.role import Role
 from backend.models.role_template import RoleTemplate
 from backend.models.user import Session, User
-from backend.services.crypto import encrypt_token
-from tests.fixtures.oidc import make_id_token
 
 
 async def _create_authenticated_user(db_session, *, is_admin: bool = False, groups=None, sub=None):
@@ -733,15 +731,14 @@ FAKE_STS_CREDS = {
 }
 
 
-async def _create_user_with_tokens(
+async def _create_user_with_session(
     db_session,
     *,
     is_admin=False,
     groups=None,
     sub=None,
-    id_token_expires_in=3600,
 ):
-    """Create a user whose session has encrypted id_token and refresh_token."""
+    """Create a user with a valid session."""
     sub = sub or f"assume-sub-{id(db_session)}-{is_admin}"
     email = f"assume-{'admin' if is_admin else 'user'}-{id(db_session)}@example.com"
     user = User(
@@ -754,13 +751,8 @@ async def _create_user_with_tokens(
     db_session.add(user)
     await db_session.flush()
 
-    id_token = make_id_token(sub=sub, email=email, expires_in=id_token_expires_in)
-
     session = Session(
         user_id=user.id,
-        id_token=encrypt_token(id_token),
-        refresh_token=encrypt_token("mock-refresh-token"),
-        access_token=encrypt_token("mock-access-token"),
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         created_at=datetime.now(timezone.utc),
     )
@@ -791,7 +783,7 @@ async def _create_role_for_assumption(db_session, account, **overrides):
 class TestFederate:
     async def test_console_returns_url(self, client, db_session):
         """Default method=console returns JSON with console_url."""
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-console"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -824,7 +816,7 @@ class TestFederate:
 
     async def test_cli_returns_credentials(self, client, db_session):
         """method=cli returns STS credentials."""
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-cli"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -853,7 +845,7 @@ class TestFederate:
 
     async def test_invalid_method_rejected(self, client, db_session):
         """Invalid method parameter returns 422."""
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-invalid-method"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -867,7 +859,7 @@ class TestFederate:
         assert response.status_code == 422
 
     async def test_forbidden_no_access(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["finance"], sub="finance-federate"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -884,7 +876,7 @@ class TestFederate:
         assert response.status_code == 403
 
     async def test_role_not_found(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-federate-404"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -898,7 +890,7 @@ class TestFederate:
         assert response.status_code == 404
 
     async def test_console_audit_logged(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-console-audit"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -927,7 +919,7 @@ class TestFederate:
         assert log.detail["method"] == "console"
 
     async def test_cli_audit_logged(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-cli-audit"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -956,7 +948,7 @@ class TestFederate:
 
     async def test_session_name_uses_preferred_username(self, client, db_session):
         """Federation uses Groundwork-<preferred_username> as session name."""
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-session-name"
         )
         user.preferred_username = "alice"
@@ -981,7 +973,7 @@ class TestFederate:
 
     async def test_old_assume_endpoint_removed(self, client, db_session):
         """POST /api/roles/assume should no longer exist."""
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-old-assume"
         )
 
@@ -995,7 +987,7 @@ class TestFederate:
 
     async def test_old_console_endpoint_removed(self, client, db_session):
         """POST /api/roles/console should no longer exist."""
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-old-console"
         )
 
@@ -1009,7 +1001,7 @@ class TestFederate:
 
     async def test_federate_updates_last_used_at(self, client, db_session):
         """Federation updates the role's last_used_at timestamp."""
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-last-used"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -1042,7 +1034,7 @@ class TestRoleStatusGating:
     # -- Federate blocked for non-active roles (both console and cli methods) --
 
     async def test_federate_blocked_for_pending_role(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-pending"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -1058,7 +1050,7 @@ class TestRoleStatusGating:
         assert "not available" in response.json()["detail"]
 
     async def test_federate_console_blocked_for_pending_role(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-pending-console"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -1073,7 +1065,7 @@ class TestRoleStatusGating:
         assert "not available" in response.json()["detail"]
 
     async def test_federate_blocked_for_failed_role(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-failed"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -1090,7 +1082,7 @@ class TestRoleStatusGating:
         assert response.status_code == 400
 
     async def test_federate_blocked_for_updating_role(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-updating"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -1105,7 +1097,7 @@ class TestRoleStatusGating:
         assert response.status_code == 400
 
     async def test_federate_blocked_for_deleting_role(self, client, db_session):
-        user, session_id = await _create_user_with_tokens(
+        user, session_id = await _create_user_with_session(
             db_session, groups=["devs"], sub="dev-deleting"
         )
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import settings
 from backend.database import get_db
 from backend.dependencies.auth import (
+    ABSOLUTE_SESSION_LIFETIME,
     SESSION_COOKIE,
     get_current_user,
     sign_session_id,
@@ -20,7 +21,6 @@ from backend.exceptions import UnauthorizedError
 from backend.models.user import Session, User
 from backend.schemas.auth import AuthStatus, UserInfo
 from backend.services import audit, oidc
-from backend.services.crypto import encrypt_token
 
 logger = logging.getLogger(__name__)
 
@@ -119,19 +119,14 @@ async def callback(
         user.last_login_at = now
         db.add(user)
 
-    # M2: Create a new session (prevents session fixation)
+    # M2: Create a new session (prevents session fixation).
+    # Only the user and expiry are kept: nothing here calls the IdP after login,
+    # so the access/refresh/id tokens are discarded rather than stored. The session
+    # therefore lasts the absolute lifetime instead of the token's expires_in.
     await db.delete(pre_auth_session)
 
-    expires_at = now + timedelta(seconds=tokens.get("expires_in", 3600))
-    raw_access = tokens.get("access_token")
-    raw_refresh = tokens.get("refresh_token")
-    auth_session = Session(
-        user_id=user.id,
-        access_token=encrypt_token(raw_access) if raw_access else None,
-        refresh_token=encrypt_token(raw_refresh) if raw_refresh else None,
-        id_token=encrypt_token(id_token_str),
-        expires_at=expires_at,
-    )
+    expires_at = now + ABSOLUTE_SESSION_LIFETIME
+    auth_session = Session(user_id=user.id, expires_at=expires_at)
     db.add(auth_session)
     await db.flush()
 
