@@ -1,43 +1,45 @@
 import { apiFetch } from './client'
 
+// Wire shapes mirror smithy/models/roles.smithy and role_templates.smithy.
+
 export interface RoleResponse {
   id: string
-  account_id: string
-  role_name: string
-  role_arn: string
+  accountId: string
+  roleName: string
+  roleArn: string
   status: string
-  error_message: string | null
-  allowed_groups: string[]
-  managed_policy_arns: string[]
-  inline_policy: Record<string, unknown> | null
-  allowed_users: string[]
-  api_session_duration: number
-  console_session_duration: number
+  errorMessage: string | null
+  allowedGroups: string[]
+  managedPolicyArns: string[]
+  inlinePolicy: Record<string, unknown> | null
+  allowedUsers: string[]
+  apiSessionDuration: number
+  consoleSessionDuration: number
   description: string | null
-  created_at: string
-  updated_at: string
-  last_used_at: string | null
+  createdAt: string
+  updatedAt: string
+  lastUsedAt: string | null
 }
 
 export interface RoleCreate {
-  role_name: string
-  template_id?: string | null
-  managed_policy_arns?: string[]
-  inline_policy?: Record<string, unknown> | null
-  allowed_groups?: string[]
-  allowed_users?: string[]
-  api_session_duration?: number
-  console_session_duration?: number
+  roleName: string
+  templateId?: string | null
+  managedPolicyArns?: string[]
+  inlinePolicy?: Record<string, unknown> | null
+  allowedGroups?: string[]
+  allowedUsers?: string[]
+  apiSessionDuration?: number
+  consoleSessionDuration?: number
   description?: string | null
 }
 
 export interface RoleUpdate {
-  managed_policy_arns?: string[]
-  inline_policy?: Record<string, unknown> | null
-  allowed_groups?: string[]
-  allowed_users?: string[]
-  api_session_duration?: number
-  console_session_duration?: number
+  managedPolicyArns?: string[]
+  inlinePolicy?: Record<string, unknown> | null
+  allowedGroups?: string[]
+  allowedUsers?: string[]
+  apiSessionDuration?: number
+  consoleSessionDuration?: number
   description?: string | null
 }
 
@@ -45,9 +47,9 @@ export interface RoleTemplateResponse {
   id: string
   name: string
   description: string | null
-  managed_policy_arns: string[]
-  created_at: string
-  updated_at: string
+  managedPolicyArns: string[]
+  createdAt: string
+  updatedAt: string
 }
 
 export interface AssumeRoleResponse {
@@ -62,23 +64,25 @@ export interface ConsoleUrlResponse {
 }
 
 export function listRoles(): Promise<RoleResponse[]> {
-  return apiFetch<RoleResponse[]>('/api/roles')
+  return apiFetch<{ roles: RoleResponse[] }>('/api/roles').then((data) => data.roles)
 }
 
 export interface RoleTemplateCreate {
   name: string
   description?: string | null
-  managed_policy_arns: string[]
+  managedPolicyArns: string[]
 }
 
 export interface RoleTemplateUpdate {
   name?: string
   description?: string | null
-  managed_policy_arns?: string[]
+  managedPolicyArns?: string[]
 }
 
 export function getRoleTemplates(): Promise<RoleTemplateResponse[]> {
-  return apiFetch<RoleTemplateResponse[]>('/api/roles/templates')
+  return apiFetch<{ templates: RoleTemplateResponse[] }>('/api/roles/templates').then(
+    (data) => data.templates,
+  )
 }
 
 export function createRoleTemplate(data: RoleTemplateCreate): Promise<RoleTemplateResponse> {

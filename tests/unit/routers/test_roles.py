@@ -72,11 +72,11 @@ class TestCreateRole:
             response = await client.post(
                 f"/api/accounts/{account.id}/roles",
                 json={
-                    "role_name": "CustomRole",
-                    "managed_policy_arns": ["arn:aws:iam::aws:policy/ReadOnlyAccess"],
-                    "inline_policy": {"Version": "2012-10-17", "Statement": []},
-                    "allowed_groups": ["devs"],
-                    "allowed_users": ["user-1"],
+                    "roleName": "CustomRole",
+                    "managedPolicyArns": ["arn:aws:iam::aws:policy/ReadOnlyAccess"],
+                    "inlinePolicy": {"Version": "2012-10-17", "Statement": []},
+                    "allowedGroups": ["devs"],
+                    "allowedUsers": ["user-1"],
                     "description": "A custom role",
                 },
                 cookies=_cookies(session_id),
@@ -84,13 +84,13 @@ class TestCreateRole:
 
         assert response.status_code == 201
         data = response.json()
-        assert data["role_name"] == "CustomRole"
-        assert data["allowed_groups"] == ["devs"]
-        assert data["allowed_users"] == ["user-1"]
-        assert data["managed_policy_arns"] == ["arn:aws:iam::aws:policy/ReadOnlyAccess"]
-        assert data["inline_policy"] is not None
+        assert data["roleName"] == "CustomRole"
+        assert data["allowedGroups"] == ["devs"]
+        assert data["allowedUsers"] == ["user-1"]
+        assert data["managedPolicyArns"] == ["arn:aws:iam::aws:policy/ReadOnlyAccess"]
+        assert data["inlinePolicy"] is not None
         assert data["description"] == "A custom role"
-        assert data["role_arn"] == ""  # placeholder before job completes
+        assert data["roleArn"] == ""  # placeholder before job completes
 
     async def test_create_role_from_template(self, client, db_session):
         admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
@@ -106,18 +106,18 @@ class TestCreateRole:
             response = await client.post(
                 f"/api/accounts/{account.id}/roles",
                 json={
-                    "role_name": "FromTemplate",
-                    "template_id": str(template.id),
-                    "allowed_groups": ["devs"],
+                    "roleName": "FromTemplate",
+                    "templateId": str(template.id),
+                    "allowedGroups": ["devs"],
                 },
                 cookies=_cookies(session_id),
             )
 
         assert response.status_code == 201
         data = response.json()
-        assert data["role_name"] == "FromTemplate"
+        assert data["roleName"] == "FromTemplate"
         # managed_policy_arns should come from the template
-        assert data["managed_policy_arns"] == template.managed_policy_arns
+        assert data["managedPolicyArns"] == template.managed_policy_arns
 
     async def test_create_role_non_admin_returns_403(self, client, db_session):
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -128,7 +128,7 @@ class TestCreateRole:
 
         response = await client.post(
             f"/api/accounts/{account.id}/roles",
-            json={"role_name": "Blocked", "allowed_groups": ["devs"]},
+            json={"roleName": "Blocked", "allowedGroups": ["devs"]},
             cookies=_cookies(user_session),
         )
 
@@ -150,7 +150,7 @@ class TestCreateRole:
 
         response = await client.post(
             f"/api/accounts/{account.id}/roles",
-            json={"role_name": "DupeRole", "allowed_groups": ["devs"]},
+            json={"roleName": "DupeRole", "allowedGroups": ["devs"]},
             cookies=_cookies(session_id),
         )
 
@@ -172,7 +172,7 @@ class TestCreateRole:
 
         response = await client.post(
             f"/api/accounts/{account.id}/roles",
-            json={"role_name": "NoGo", "allowed_groups": ["devs"]},
+            json={"roleName": "NoGo", "allowedGroups": ["devs"]},
             cookies=_cookies(session_id),
         )
 
@@ -186,7 +186,7 @@ class TestCreateRole:
         with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
             response = await client.post(
                 f"/api/accounts/{account.id}/roles",
-                json={"role_name": "NoAccess", "allowed_groups": [], "allowed_users": []},
+                json={"roleName": "NoAccess", "allowedGroups": [], "allowedUsers": []},
                 cookies=_cookies(session_id),
             )
 
@@ -199,7 +199,7 @@ class TestCreateRole:
         with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
             response = await client.post(
                 f"/api/accounts/{account.id}/roles",
-                json={"role_name": "JobTest", "allowed_groups": ["devs"]},
+                json={"roleName": "JobTest", "allowedGroups": ["devs"]},
                 cookies=_cookies(session_id),
             )
 
@@ -257,12 +257,12 @@ class TestUpdateRole:
         with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
             response = await client.patch(
                 f"/api/accounts/{account.id}/roles/{role.id}",
-                json={"allowed_groups": ["new-group"]},
+                json={"allowedGroups": ["new-group"]},
                 cookies=_cookies(session_id),
             )
 
         assert response.status_code == 200
-        assert response.json()["allowed_groups"] == ["new-group"]
+        assert response.json()["allowedGroups"] == ["new-group"]
 
         result = await db_session.execute(select(Job).where(Job.job_type == "update_role"))
         job = result.scalar_one()
@@ -285,7 +285,7 @@ class TestUpdateRole:
         with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
             response = await client.patch(
                 f"/api/accounts/{account.id}/roles/{role.id}",
-                json={"allowed_users": ["user-abc"]},
+                json={"allowedUsers": ["user-abc"]},
                 cookies=_cookies(session_id),
             )
 
@@ -312,7 +312,7 @@ class TestUpdateRole:
         with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
             response = await client.patch(
                 f"/api/accounts/{account.id}/roles/{role.id}",
-                json={"managed_policy_arns": ["arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"]},
+                json={"managedPolicyArns": ["arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"]},
                 cookies=_cookies(session_id),
             )
 
@@ -385,8 +385,8 @@ class TestListRoles:
         response = await client.get("/api/roles", cookies=_cookies(user_session))
 
         assert response.status_code == 200
-        data = response.json()
-        names = [r["role_name"] for r in data]
+        data = response.json()["roles"]
+        names = [r["roleName"] for r in data]
         assert "DevRole" in names
         assert "OpsRole" not in names
 
@@ -413,8 +413,8 @@ class TestListRoles:
         response = await client.get("/api/roles", cookies=_cookies(user_session))
 
         assert response.status_code == 200
-        data = response.json()
-        names = [r["role_name"] for r in data]
+        data = response.json()["roles"]
+        names = [r["roleName"] for r in data]
         assert "UserSpecificRole" in names
 
     async def test_list_roles_admin_sees_all(self, client, db_session):
@@ -436,8 +436,8 @@ class TestListRoles:
         response = await client.get("/api/roles", cookies=_cookies(session_id))
 
         assert response.status_code == 200
-        data = response.json()
-        names = [r["role_name"] for r in data]
+        data = response.json()["roles"]
+        names = [r["roleName"] for r in data]
         assert "AdminVisible" in names
 
     async def test_list_roles_alphabetical_order(self, client, db_session):
@@ -462,7 +462,7 @@ class TestListRoles:
         response = await client.get("/api/roles", cookies=_cookies(session_id))
 
         assert response.status_code == 200
-        names = [r["role_name"] for r in response.json()]
+        names = [r["roleName"] for r in response.json()["roles"]]
         assert names == sorted(names)
 
     async def test_list_roles_includes_last_used_at(self, client, db_session):
@@ -485,10 +485,10 @@ class TestListRoles:
         response = await client.get("/api/roles", cookies=_cookies(session_id))
 
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["roles"]
         assert len(data) >= 1
-        assert "last_used_at" in data[0]
-        assert data[0]["last_used_at"] is None
+        assert "lastUsedAt" in data[0]
+        assert data[0]["lastUsedAt"] is None
 
 
 class TestFixDrift:
@@ -586,7 +586,7 @@ class TestRoleTemplatesList:
         )
 
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["templates"]
         names = [t["name"] for t in data]
         assert "Admin" in names
         assert "ReadOnly" in names
@@ -606,7 +606,7 @@ class TestRoleTemplatesCreate:
             json={
                 "name": "CustomTemplate",
                 "description": "A custom template",
-                "managed_policy_arns": ["arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"],
+                "managedPolicyArns": ["arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"],
             },
             cookies={SESSION_COOKIE: session_id},
         )
@@ -615,14 +615,14 @@ class TestRoleTemplatesCreate:
         data = response.json()
         assert data["name"] == "CustomTemplate"
         assert data["description"] == "A custom template"
-        assert "AmazonS3ReadOnlyAccess" in data["managed_policy_arns"][0]
+        assert "AmazonS3ReadOnlyAccess" in data["managedPolicyArns"][0]
 
     async def test_create_template_non_admin_returns_403(self, client, db_session):
         _, session_id = await _create_authenticated_user(db_session, is_admin=False)
 
         response = await client.post(
             "/api/roles/templates",
-            json={"name": "Blocked", "managed_policy_arns": []},
+            json={"name": "Blocked", "managedPolicyArns": []},
             cookies={SESSION_COOKIE: session_id},
         )
 
@@ -631,7 +631,7 @@ class TestRoleTemplatesCreate:
     async def test_create_template_unauthenticated_returns_401(self, client):
         response = await client.post(
             "/api/roles/templates",
-            json={"name": "NoAuth", "managed_policy_arns": []},
+            json={"name": "NoAuth", "managedPolicyArns": []},
         )
 
         assert response.status_code == 401
@@ -641,7 +641,7 @@ class TestRoleTemplatesCreate:
 
         response = await client.post(
             "/api/roles/templates",
-            json={"name": "BadArn", "managed_policy_arns": ["not-a-valid-arn"]},
+            json={"name": "BadArn", "managedPolicyArns": ["not-a-valid-arn"]},
             cookies={SESSION_COOKIE: session_id},
         )
 
@@ -652,7 +652,7 @@ class TestRoleTemplatesCreate:
 
         response = await client.post(
             "/api/roles/templates",
-            json={"name": "Admin", "managed_policy_arns": []},
+            json={"name": "Admin", "managedPolicyArns": []},
             cookies={SESSION_COOKIE: session_id},
         )
 
@@ -1182,7 +1182,7 @@ class TestRoleStatusGating:
 
         response = await client.patch(
             f"/api/accounts/{account.id}/roles/{role.id}",
-            json={"allowed_groups": ["new-group"]},
+            json={"allowedGroups": ["new-group"]},
             cookies=_cookies(session_id),
         )
         assert response.status_code == 409
@@ -1255,15 +1255,15 @@ class TestRoleStatusGating:
         with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
             response = await client.patch(
                 f"/api/accounts/{account.id}/roles/{role.id}",
-                json={"allowed_groups": ["new-group"]},
+                json={"allowedGroups": ["new-group"]},
                 cookies=_cookies(session_id),
             )
 
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "pending"
-        assert data["error_message"] is None
-        assert data["role_arn"] == ""
+        assert data["errorMessage"] is None
+        assert data["roleArn"] == ""
 
         # Should create a create_role job, not update_role
         result = await db_session.execute(select(Job).where(Job.job_type == "create_role"))
@@ -1289,7 +1289,7 @@ class TestRoleStatusGating:
         with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
             response = await client.patch(
                 f"/api/accounts/{account.id}/roles/{role.id}",
-                json={"allowed_groups": ["new-group"]},
+                json={"allowedGroups": ["new-group"]},
                 cookies=_cookies(session_id),
             )
 
@@ -1383,11 +1383,11 @@ class TestRoleStatusGating:
         with patch("backend.routers.roles.execute_job", new_callable=AsyncMock):
             response = await client.post(
                 f"/api/accounts/{account.id}/roles",
-                json={"role_name": "NewRole", "allowed_groups": ["devs"]},
+                json={"roleName": "NewRole", "allowedGroups": ["devs"]},
                 cookies=_cookies(session_id),
             )
 
         assert response.status_code == 201
         data = response.json()
         assert data["status"] == "pending"
-        assert data["error_message"] is None
+        assert data["errorMessage"] is None

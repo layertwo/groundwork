@@ -42,6 +42,7 @@ echo "==> codegen: $OPENAPI -> $GENERATED_DIR/models.py"
   --use-standard-collections \
   --use-union-operator \
   --use-double-quotes \
+  --strict-nullable \
   --target-python-version 3.14 \
   --disable-timestamp)
 

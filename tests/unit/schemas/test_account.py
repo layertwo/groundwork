@@ -3,53 +3,53 @@
 import pytest
 from pydantic import ValidationError
 
-from backend.schemas.account import AccountUpdate
+from backend.schemas.generated.models import UpdateAccountRequestContent
 
 
 class TestAccountUpdateAliasValidation:
     def test_valid_alias(self):
-        body = AccountUpdate(alias="my-prod-account")
+        body = UpdateAccountRequestContent(alias="my-prod-account")
         assert body.alias == "my-prod-account"
 
     def test_alias_min_length(self):
         with pytest.raises(ValidationError):
-            AccountUpdate(alias="ab")
+            UpdateAccountRequestContent(alias="ab")
 
     def test_alias_max_length(self):
         with pytest.raises(ValidationError):
-            AccountUpdate(alias="a" * 64)
+            UpdateAccountRequestContent(alias="a" * 64)
 
     def test_alias_no_uppercase(self):
         with pytest.raises(ValidationError):
-            AccountUpdate(alias="MyAlias")
+            UpdateAccountRequestContent(alias="MyAlias")
 
     def test_alias_no_special_chars(self):
         with pytest.raises(ValidationError):
-            AccountUpdate(alias="my_alias!")
+            UpdateAccountRequestContent(alias="my_alias!")
 
     def test_alias_empty_string_allowed(self):
         """Empty string means 'delete the alias'."""
-        body = AccountUpdate(alias="")
+        body = UpdateAccountRequestContent(alias="")
         assert body.alias == ""
 
 
 class TestAccountUpdateColorValidation:
     def test_valid_color(self):
-        body = AccountUpdate(color="red")
+        body = UpdateAccountRequestContent(color="red")
         assert body.color == "red"
 
     def test_valid_camelcase_color(self):
-        body = AccountUpdate(color="darkBlue")
+        body = UpdateAccountRequestContent(color="darkBlue")
         assert body.color == "darkBlue"
 
     def test_invalid_color(self):
         with pytest.raises(ValidationError):
-            AccountUpdate(color="magenta")
+            UpdateAccountRequestContent(color="magenta")
 
     def test_none_color_clears(self):
-        body = AccountUpdate(color="none")
+        body = UpdateAccountRequestContent(color="none")
         assert body.color == "none"
 
     def test_empty_string_clears(self):
-        body = AccountUpdate(color="")
+        body = UpdateAccountRequestContent(color="")
         assert body.color == ""

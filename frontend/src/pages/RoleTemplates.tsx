@@ -50,13 +50,13 @@ import TagInput from '@/components/TagInput'
 interface TemplateFormState {
   name: string
   description: string
-  managed_policy_arns: string[]
+  managedPolicyArns: string[]
 }
 
 const emptyForm: TemplateFormState = {
   name: '',
   description: '',
-  managed_policy_arns: [],
+  managedPolicyArns: [],
 }
 
 export default function RoleTemplates() {
@@ -83,7 +83,7 @@ export default function RoleTemplates() {
       (t) =>
         t.name.toLowerCase().includes(q) ||
         (t.description ?? '').toLowerCase().includes(q) ||
-        t.managed_policy_arns.some((a) => a.toLowerCase().includes(q))
+        t.managedPolicyArns.some((a) => a.toLowerCase().includes(q))
     )
   }, [templates, search])
 
@@ -99,7 +99,7 @@ export default function RoleTemplates() {
     setForm({
       name: template.name,
       description: template.description ?? '',
-      managed_policy_arns: [...template.managed_policy_arns],
+      managedPolicyArns: [...template.managedPolicyArns],
     })
     setError('')
     setDialogOpen(true)
@@ -114,13 +114,13 @@ export default function RoleTemplates() {
         await updateRoleTemplate(editing.id, {
           name: form.name,
           description: form.description || null,
-          managed_policy_arns: form.managed_policy_arns,
+          managedPolicyArns: form.managedPolicyArns,
         })
       } else {
         await createRoleTemplate({
           name: form.name,
           description: form.description || null,
-          managed_policy_arns: form.managed_policy_arns,
+          managedPolicyArns: form.managedPolicyArns,
         })
       }
       queryClient.invalidateQueries({ queryKey: ['role-templates'] })
@@ -187,8 +187,8 @@ export default function RoleTemplates() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {template.managed_policy_arns.length > 0
-                        ? template.managed_policy_arns.map((arn) => (
+                      {template.managedPolicyArns.length > 0
+                        ? template.managedPolicyArns.map((arn) => (
                             <HoverCard key={arn} openDelay={200} closeDelay={0}>
                               <HoverCardTrigger asChild>
                                 <Badge variant="outline" className="text-xs font-mono cursor-default">
@@ -260,8 +260,8 @@ export default function RoleTemplates() {
             <div className="space-y-2">
               <Label>Managed Policy ARNs</Label>
               <TagInput
-                value={form.managed_policy_arns}
-                onChange={(arns) => setForm({ ...form, managed_policy_arns: arns })}
+                value={form.managedPolicyArns}
+                onChange={(arns) => setForm({ ...form, managedPolicyArns: arns })}
                 placeholder="arn:aws:iam::aws:policy/..."
               />
             </div>

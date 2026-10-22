@@ -93,7 +93,7 @@ export default function Dashboard() {
     if (!roles) return {}
     const map: Record<string, typeof roles> = {}
     for (const role of roles) {
-      const key = role.account_id
+      const key = role.accountId
       if (!map[key]) map[key] = []
       map[key].push(role)
     }
