@@ -21,19 +21,19 @@
 | backend/models/role\_template.py     |        9 |        0 |        0 |        0 |    100% |           |
 | backend/models/user.py               |       28 |        0 |        0 |        0 |    100% |           |
 | backend/routers/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100% |           |
-| backend/routers/accounts.py          |       83 |        4 |       24 |        3 |     93% |64-66, 122, 139-\>138, 145-\>147 |
+| backend/routers/accounts.py          |       83 |        4 |       24 |        3 |     93% |65-67, 123, 140-\>139, 146-\>148 |
 | backend/routers/audit.py             |       27 |        2 |        8 |        2 |     89% |    30, 32 |
 | backend/routers/auth.py              |      117 |        8 |       22 |        5 |     91% |79-87, 158-\>174, 161-\>174, 198, 207, 213-215 |
 | backend/routers/events.py            |       43 |       29 |        6 |        0 |     29% |     28-63 |
-| backend/routers/jobs.py              |       52 |        2 |       16 |        2 |     94% |    84, 88 |
+| backend/routers/jobs.py              |       52 |        2 |       16 |        2 |     94% |    89, 93 |
 | backend/routers/roles.py             |      227 |       10 |       66 |       10 |     93% |73, 92, 157, 164, 192-193, 254, 317, 328, 403, 562-\>561 |
 | backend/schemas/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100% |           |
-| backend/schemas/account.py           |       13 |        0 |        0 |        0 |    100% |           |
+| backend/schemas/account.py           |       15 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/audit.py             |       16 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/auth.py              |        8 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/common.py            |        6 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/generated\_base.py   |       14 |        0 |        4 |        0 |    100% |           |
-| backend/schemas/job.py               |        8 |        0 |        0 |        0 |    100% |           |
+| backend/schemas/job.py               |        6 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/role.py              |       93 |       11 |       24 |       10 |     82% |20, 26, 29, 35, 38, 44, 47, 51, 100, 107, 113 |
 | backend/schemas/role\_template.py    |       32 |        0 |       10 |        0 |    100% |           |
 | backend/services/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100% |           |
