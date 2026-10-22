@@ -22,14 +22,14 @@
 | backend/models/user.py               |       28 |        0 |        0 |        0 |    100% |           |
 | backend/routers/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100% |           |
 | backend/routers/accounts.py          |       83 |        4 |       24 |        3 |     93% |58-60, 116, 133-\>132, 139-\>141 |
-| backend/routers/audit.py             |        5 |        0 |        0 |        0 |    100% |           |
+| backend/routers/audit.py             |       27 |        2 |        8 |        2 |     89% |    30, 32 |
 | backend/routers/auth.py              |      117 |        8 |       22 |        5 |     91% |79-87, 158-\>174, 161-\>174, 198, 207, 213-215 |
 | backend/routers/events.py            |       43 |       29 |        6 |        0 |     29% |     28-63 |
 | backend/routers/jobs.py              |       52 |        2 |       16 |        2 |     94% |    84, 88 |
 | backend/routers/roles.py             |      227 |       10 |       66 |       10 |     93% |73, 92, 157, 164, 192-193, 254, 317, 328, 403, 562-\>561 |
 | backend/schemas/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/account.py           |       22 |        0 |        4 |        0 |    100% |           |
-| backend/schemas/audit.py             |       13 |        0 |        0 |        0 |    100% |           |
+| backend/schemas/audit.py             |       16 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/auth.py              |        8 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/common.py            |        6 |        0 |        0 |        0 |    100% |           |
 | backend/schemas/job.py               |        8 |        0 |        0 |        0 |    100% |           |
@@ -43,7 +43,7 @@
 | backend/services/jobs.py             |      486 |      130 |      104 |       15 |     72% |80-141, 164-169, 200-\>189, 203, 277-282, 343, 348, 371-372, 389-390, 486-487, 489-490, 492-493, 514, 526-539, 561-577, 738-800, 887, 892 |
 | backend/services/oidc.py             |       79 |       26 |        4 |        0 |     69% |58-69, 94-124, 128-139 |
 | backend/services/system\_user.py     |       14 |        0 |        2 |        0 |    100% |           |
-| **TOTAL**                            | **2087** |  **374** |  **402** |   **60** | **80%** |           |
+| **TOTAL**                            | **2112** |  **376** |  **410** |   **62** | **80%** |           |
 
 
 ## Setup coverage badge
