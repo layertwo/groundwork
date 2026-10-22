@@ -1,6 +1,7 @@
 """Tests for audit log schemas."""
 
 from datetime import datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 from backend.schemas.audit import AuditLogQuery, AuditLogResponse
@@ -8,7 +9,7 @@ from backend.schemas.audit import AuditLogQuery, AuditLogResponse
 
 class TestAuditLogResponse:
     def test_from_dict(self):
-        data = {
+        data: dict[str, Any] = {
             "id": 1,
             "user_id": uuid4(),
             "action": "auth.login",

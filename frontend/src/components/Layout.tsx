@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { Building2, Shield, Activity } from 'lucide-react'
+import { Building2, Shield, Activity, ScrollText, type LucideIcon } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,10 +10,19 @@ import { useAuth } from '@/context/AuthContext'
 import Logo from '@/components/Logo'
 import { cn } from '@/lib/utils'
 
-const navItems = [
+interface NavItem {
+  to: string
+  label: string
+  icon: LucideIcon
+  match: (path: string) => boolean
+  adminOnly?: boolean
+}
+
+const navItems: NavItem[] = [
   { to: '/', label: 'Accounts', icon: Building2, match: (p: string) => p === '/' || p.startsWith('/accounts') },
   { to: '/role-templates', label: 'Role Templates', icon: Shield, match: (p: string) => p.startsWith('/role-templates') },
   { to: '/jobs', label: 'Jobs', icon: Activity, match: (p: string) => p.startsWith('/jobs') },
+  { to: '/audit', label: 'Audit', icon: ScrollText, match: (p: string) => p.startsWith('/audit'), adminOnly: true },
 ]
 
 function getInitials(name: string): string {
@@ -39,7 +48,9 @@ export default function Layout() {
             </Link>
             {isAuthenticated && (
               <nav className="flex items-center gap-1">
-                {navItems.map(({ to, label, icon: Icon, match }) => {
+                {navItems
+                  .filter(({ adminOnly }) => !adminOnly || user?.is_admin)
+                  .map(({ to, label, icon: Icon, match }) => {
                   const active = match(location.pathname)
                   return (
                     <Link

@@ -16,7 +16,10 @@ if TYPE_CHECKING:
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
-    __table_args__ = (Index("ix_audit_log_resource", "resource_type", "resource_id"),)
+    __table_args__ = (
+        Index("ix_audit_log_resource", "resource_type", "resource_id"),
+        Index("ix_audit_log_created", "created_at", "id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
