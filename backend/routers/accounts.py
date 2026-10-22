@@ -14,7 +14,13 @@ from backend.exceptions import ConflictError, GroundworkError, NotFoundError
 from backend.models.account import Account
 from backend.models.job import Job
 from backend.models.user import User
-from backend.schemas.account import AccountCreate, AccountResponse, AccountUpdate
+from backend.schemas.account import (
+    AccountCreate,
+    AccountResponse,
+    AccountUpdate,
+    CreateAccountResponse,
+    UpdateAccountResponse,
+)
 from backend.services import aws
 from backend.services.audit import log_event
 from backend.services.jobs import execute_job
@@ -31,7 +37,7 @@ async def list_accounts(
     return list(result.scalars().all())
 
 
-@router.post("", response_model=AccountResponse, status_code=201)
+@router.post("", response_model=CreateAccountResponse, status_code=201)
 async def create_account(
     body: AccountCreate,
     request: Request,
@@ -102,7 +108,7 @@ async def get_account(
     return account
 
 
-@router.patch("/{account_id}", response_model=AccountResponse)
+@router.patch("/{account_id}", response_model=UpdateAccountResponse)
 async def update_account(
     account_id: UUID,
     body: AccountUpdate,

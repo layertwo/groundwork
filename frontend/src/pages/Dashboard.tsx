@@ -107,7 +107,7 @@ export default function Dashboard() {
     // Hide suspended/closed accounts unless toggled
     if (!showClosed) {
       filtered = filtered.filter(
-        (a) => !a.aws_status || a.aws_status === 'ACTIVE'
+        (a) => !a.awsStatus || a.awsStatus === 'ACTIVE'
       )
     }
 
@@ -115,17 +115,17 @@ export default function Dashboard() {
     if (q) {
       filtered = filtered.filter(
         (a) =>
-          a.account_name.toLowerCase().includes(q) ||
-          a.account_email.toLowerCase().includes(q) ||
-          (a.aws_account_id ?? '').includes(q) ||
-          a.organizational_unit.toLowerCase().includes(q) ||
+          a.accountName.toLowerCase().includes(q) ||
+          a.accountEmail.toLowerCase().includes(q) ||
+          (a.awsAccountId ?? '').includes(q) ||
+          a.organizationalUnit.toLowerCase().includes(q) ||
           (a.alias ?? '').toLowerCase().includes(q)
       )
     }
 
     const map = new Map<string, typeof accounts>()
     for (const a of filtered) {
-      const ou = a.organizational_unit
+      const ou = a.organizationalUnit
       if (!map.has(ou)) map.set(ou, [])
       map.get(ou)!.push(a)
     }
@@ -173,7 +173,7 @@ export default function Dashboard() {
         onChange={(e) => setSearch(e.target.value)}
       />
 
-      {accounts && accounts.some((a) => a.aws_status && a.aws_status !== 'ACTIVE') && (
+      {accounts && accounts.some((a) => a.awsStatus && a.awsStatus !== 'ACTIVE') && (
         <div className="flex items-center gap-2">
           <Checkbox
             id="show-closed"
@@ -220,7 +220,7 @@ export default function Dashboard() {
                     <TableRow
                       key={account.id}
                       className={
-                        account.aws_status && account.aws_status !== 'ACTIVE'
+                        account.awsStatus && account.awsStatus !== 'ACTIVE'
                           ? 'opacity-50'
                           : undefined
                       }
@@ -238,7 +238,7 @@ export default function Dashboard() {
                               to={`/accounts/${account.id}`}
                               className="font-medium hover:underline"
                             >
-                              {account.account_name}
+                              {account.accountName}
                             </Link>
                             {account.alias && (
                               <div className="text-xs text-muted-foreground">{account.alias}</div>
@@ -247,10 +247,10 @@ export default function Dashboard() {
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {account.account_email}
+                        {account.accountEmail}
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
-                        {account.aws_account_id ?? '—'}
+                        {account.awsAccountId ?? '—'}
                       </TableCell>
                       <TableCell>
                         <Badge variant={statusVariant(account.status)}>
@@ -259,9 +259,9 @@ export default function Dashboard() {
                       </TableCell>
                       <TableCell className="text-right">
                         <FederateDropdown
-                          accountName={account.account_name}
+                          accountName={account.accountName}
                           accountStatus={account.status}
-                          awsAccountId={account.aws_account_id ?? ''}
+                          awsAccountId={account.awsAccountId ?? ''}
                           roles={rolesByAccount[account.id] ?? []}
                         />
                       </TableCell>

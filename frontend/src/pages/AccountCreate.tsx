@@ -15,10 +15,10 @@ export default function AccountCreate() {
   const [submitting, setSubmitting] = useState(false)
 
   const [form, setForm] = useState({
-    account_name: '',
-    account_email: '',
-    organizational_unit: '',
-    sso_user_email: '',
+    accountName: '',
+    accountEmail: '',
+    organizationalUnit: '',
+    ssoUserEmail: '',
   })
 
   const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -52,42 +52,42 @@ export default function AccountCreate() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="account_name">Account Name</Label>
+          <Label htmlFor="accountName">Account Name</Label>
           <Input
-            id="account_name"
-            value={form.account_name}
-            onChange={set('account_name')}
+            id="accountName"
+            value={form.accountName}
+            onChange={set('accountName')}
             required
             maxLength={50}
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="account_email">Account Email</Label>
+          <Label htmlFor="accountEmail">Account Email</Label>
           <Input
-            id="account_email"
+            id="accountEmail"
             type="email"
-            value={form.account_email}
-            onChange={set('account_email')}
+            value={form.accountEmail}
+            onChange={set('accountEmail')}
             required
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="organizational_unit">Organizational Unit (OU)</Label>
+          <Label htmlFor="organizationalUnit">Organizational Unit (OU)</Label>
           <Input
-            id="organizational_unit"
-            value={form.organizational_unit}
-            onChange={set('organizational_unit')}
+            id="organizationalUnit"
+            value={form.organizationalUnit}
+            onChange={set('organizationalUnit')}
             required
             placeholder="ou-xxxx-xxxxxxxx or r-xxxx"
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="sso_user_email">SSO User Email</Label>
+          <Label htmlFor="ssoUserEmail">SSO User Email</Label>
           <Input
-            id="sso_user_email"
+            id="ssoUserEmail"
             type="email"
-            value={form.sso_user_email}
-            onChange={set('sso_user_email')}
+            value={form.ssoUserEmail}
+            onChange={set('ssoUserEmail')}
             required
           />
         </div>

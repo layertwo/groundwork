@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "sources": ["models"],
+  "maven": {
+    "dependencies": []
+  },
+  "projections": {
+    "openapi": {
+      "plugins": {
+        "openapi": {
+          "service": "layertwo.groundwork#Groundwork",
+          "protocol": "aws.protocols#restJson1",
+          "version": "3.0.2",
+          "useIntegerType": true,
+          "disableCloudFormationSubstitution": true
+        }
+      }
+    }
+  }
+}

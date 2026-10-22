@@ -59,7 +59,7 @@ export default function JobList() {
     queryFn: listAccounts,
   })
 
-  const accountMap = new Map(accounts?.map((a) => [a.id, a.account_name]) ?? [])
+  const accountMap = new Map(accounts?.map((a) => [a.id, a.accountName]) ?? [])
 
   const filteredJobs = useMemo(() => {
     if (!jobs) return []

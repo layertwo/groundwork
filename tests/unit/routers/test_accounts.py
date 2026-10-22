@@ -42,20 +42,20 @@ class TestCreateAccount:
             response = await client.post(
                 "/api/accounts",
                 json={
-                    "account_name": "Test Account",
-                    "account_email": "test@example.com",
-                    "organizational_unit": "ou-1234",
-                    "sso_user_email": "sso@example.com",
+                    "accountName": "Test Account",
+                    "accountEmail": "test@example.com",
+                    "organizationalUnit": "ou-1234",
+                    "ssoUserEmail": "sso@example.com",
                 },
                 cookies=_cookies(session_id),
             )
 
         assert response.status_code == 201
         data = response.json()
-        assert data["account_name"] == "Test Account"
-        assert data["account_email"] == "test@example.com"
+        assert data["accountName"] == "Test Account"
+        assert data["accountEmail"] == "test@example.com"
         assert data["status"] == "pending"
-        assert data["created_by"] == str(admin.id)
+        assert data["createdBy"] == str(admin.id)
 
     async def test_create_account_non_admin_returns_403(self, client, db_session):
         _, session_id = await _create_authenticated_user(db_session, is_admin=False)
@@ -63,10 +63,10 @@ class TestCreateAccount:
         response = await client.post(
             "/api/accounts",
             json={
-                "account_name": "Test Account",
-                "account_email": "test@example.com",
-                "organizational_unit": "ou-1234",
-                "sso_user_email": "sso@example.com",
+                "accountName": "Test Account",
+                "accountEmail": "test@example.com",
+                "organizationalUnit": "ou-1234",
+                "ssoUserEmail": "sso@example.com",
             },
             cookies=_cookies(session_id),
         )
@@ -77,10 +77,10 @@ class TestCreateAccount:
         response = await client.post(
             "/api/accounts",
             json={
-                "account_name": "Test Account",
-                "account_email": "test@example.com",
-                "organizational_unit": "ou-1234",
-                "sso_user_email": "sso@example.com",
+                "accountName": "Test Account",
+                "accountEmail": "test@example.com",
+                "organizationalUnit": "ou-1234",
+                "ssoUserEmail": "sso@example.com",
             },
         )
 
@@ -102,10 +102,10 @@ class TestCreateAccount:
         response = await client.post(
             "/api/accounts",
             json={
-                "account_name": "New Account",
-                "account_email": "dupe@example.com",
-                "organizational_unit": "ou-5678",
-                "sso_user_email": "sso@example.com",
+                "accountName": "New Account",
+                "accountEmail": "dupe@example.com",
+                "organizationalUnit": "ou-5678",
+                "ssoUserEmail": "sso@example.com",
             },
             cookies=_cookies(session_id),
         )
@@ -119,10 +119,10 @@ class TestCreateAccount:
             response = await client.post(
                 "/api/accounts",
                 json={
-                    "account_name": "Job Test",
-                    "account_email": "job-test@example.com",
-                    "organizational_unit": "ou-1234",
-                    "sso_user_email": "sso@example.com",
+                    "accountName": "Job Test",
+                    "accountEmail": "job-test@example.com",
+                    "organizationalUnit": "ou-1234",
+                    "ssoUserEmail": "sso@example.com",
                 },
                 cookies=_cookies(session_id),
             )
@@ -187,7 +187,7 @@ class TestGetAccount:
         response = await client.get(f"/api/accounts/{account.id}", cookies=_cookies(session_id))
 
         assert response.status_code == 200
-        assert response.json()["account_name"] == "Get Test"
+        assert response.json()["accountName"] == "Get Test"
 
     async def test_get_account_not_found(self, client, db_session):
         _, session_id = await _create_authenticated_user(db_session, is_admin=True)
@@ -214,12 +214,12 @@ class TestUpdateAccount:
 
         response = await client.patch(
             f"/api/accounts/{account.id}",
-            json={"account_name": "New Name"},
+            json={"accountName": "New Name"},
             cookies=_cookies(session_id),
         )
 
         assert response.status_code == 200
-        assert response.json()["account_name"] == "New Name"
+        assert response.json()["accountName"] == "New Name"
 
     async def test_update_account_non_admin_returns_403(self, client, db_session):
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -237,7 +237,7 @@ class TestUpdateAccount:
 
         response = await client.patch(
             f"/api/accounts/{account.id}",
-            json={"account_name": "Hacked"},
+            json={"accountName": "Hacked"},
             cookies=_cookies(user_session),
         )
 
@@ -424,7 +424,7 @@ class TestAccountResponseIncludesMetadata:
 
         assert response.status_code == 200
         data = response.json()
-        matched = [a for a in data if a["aws_account_id"] == "666666666666"]
+        matched = [a for a in data if a["awsAccountId"] == "666666666666"]
         assert len(matched) == 1
         assert matched[0]["alias"] == "staging"
         assert matched[0]["color"] == "yellow"

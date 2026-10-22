@@ -10,6 +10,8 @@ on:
       - '.github/workflows/python-tests.yml'
       - 'pyproject.toml'
       - 'uv.lock'
+      - 'smithy/**'
+      - 'scripts/**'
 
 jobs:
   test:
@@ -54,6 +56,15 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --frozen --all-extras --all-groups
+
+      - name: Set up Java (Smithy build)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Generate models from the Smithy contract
+        run: ./scripts/codegen.sh
 
       - name: Run database migrations
         run: uv run alembic upgrade head
