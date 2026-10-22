@@ -13,6 +13,7 @@ import RoleCreate from '@/pages/RoleCreate'
 import JobList from '@/pages/JobList'
 import RoleTemplates from '@/pages/RoleTemplates'
 import FederatePage from '@/pages/FederatePage'
+import AuditLog from '@/pages/AuditLog'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -70,6 +71,14 @@ export default function App() {
                     <ProtectedRoute>
                       <RoleTemplates />
                     </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/audit"
+                  element={
+                    <AdminRoute>
+                      <AuditLog />
+                    </AdminRoute>
                   }
                 />
                 <Route

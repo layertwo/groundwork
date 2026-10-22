@@ -1,8 +1,15 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class AuditUserResponse(BaseModel):
+    id: UUID
+    display_name: str
+
+    model_config = {"from_attributes": True}
 
 
 class AuditLogResponse(BaseModel):
@@ -15,14 +22,15 @@ class AuditLogResponse(BaseModel):
     ip_address: Optional[str]
     user_agent: Optional[str]
     created_at: datetime
+    user: Optional[AuditUserResponse] = None
 
     model_config = {"from_attributes": True}
 
 
 class AuditLogQuery(BaseModel):
-    resource_type: Optional[str] = None
-    resource_id: Optional[str] = None
+    resource_type: Annotated[Optional[str], Field(max_length=64)] = None
+    resource_id: Annotated[Optional[str], Field(max_length=255)] = None
     user_id: Optional[UUID] = None
-    action: Optional[str] = None
-    page: int = 1
-    page_size: int = 50
+    action: Annotated[Optional[str], Field(max_length=128)] = None
+    page: Annotated[int, Field(ge=1, le=1_000_000)] = 1
+    page_size: Annotated[int, Field(ge=1, le=200)] = 50
