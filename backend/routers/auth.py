@@ -95,9 +95,11 @@ async def callback(
     display_name = claims.get("name") or claims.get("preferred_username", "")
     preferred_username = claims.get("preferred_username", "")
     groups = claims.get("groups", [])
+    # Users are a local projection of the IdP identity: upserted on every login.
+    is_admin = settings.admin_group in groups
 
-    result = await db.execute(select(User).where(User.sub == sub))
-    user = result.scalar_one_or_none()
+    user_result = await db.execute(select(User).where(User.sub == sub))
+    user: User | None = user_result.scalar_one_or_none()
 
     now = datetime.now(timezone.utc)
     if user is None:
@@ -107,6 +109,7 @@ async def callback(
             display_name=display_name,
             preferred_username=preferred_username,
             groups=groups,
+            is_admin=is_admin,
             last_login_at=now,
         )
         db.add(user)
@@ -116,6 +119,7 @@ async def callback(
         user.display_name = display_name
         user.preferred_username = preferred_username
         user.groups = groups
+        user.is_admin = is_admin
         user.last_login_at = now
         db.add(user)
 

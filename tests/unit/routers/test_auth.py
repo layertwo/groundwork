@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
+from backend.config import settings
 from backend.dependencies.auth import SESSION_COOKIE, sign_session_id
 from backend.models.user import Session, User
 from tests.fixtures.oidc import MOCK_ISSUER, make_token_response
@@ -53,6 +54,84 @@ class TestCallback:
 
         assert response.status_code == 302
         assert SESSION_COOKIE in response.cookies
+
+        result = await db_session.execute(select(User).where(User.sub == "new-user-sub"))
+        created_user = result.scalar_one()
+        assert created_user.is_admin is False
+
+    async def test_callback_grants_admin_from_configured_group(
+        self, client, db_session, mock_oidc_exchange, mock_oidc_validate, monkeypatch
+    ):
+        monkeypatch.setattr(settings, "admin_group", "groundwork-admins")
+
+        session = Session(
+            state="test-state-admin",
+            nonce="test-nonce-admin",
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(session)
+        await db_session.flush()
+
+        mock_oidc_exchange.return_value = make_token_response(nonce="test-nonce-admin")
+        mock_oidc_validate.return_value = {
+            "sub": "admin-sub",
+            "email": "admin@example.com",
+            "name": "Admin User",
+            "groups": ["groundwork-admins"],
+            "nonce": "test-nonce-admin",
+        }
+
+        response = await client.get(
+            "/api/auth/callback",
+            params={"code": "auth-code", "state": "test-state-admin"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 302
+
+        result = await db_session.execute(select(User).where(User.sub == "admin-sub"))
+        assert result.scalar_one().is_admin is True
+
+    async def test_callback_removes_admin_when_group_dropped(
+        self, client, db_session, mock_oidc_exchange, mock_oidc_validate
+    ):
+        user = User(
+            sub="demoted-sub",
+            email="demoted@example.com",
+            display_name="Demoted",
+            groups=["admins"],
+            is_admin=True,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        session = Session(
+            state="test-state-demoted",
+            nonce="test-nonce-demoted",
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(session)
+        await db_session.flush()
+
+        mock_oidc_exchange.return_value = make_token_response(nonce="test-nonce-demoted")
+        mock_oidc_validate.return_value = {
+            "sub": "demoted-sub",
+            "email": "demoted@example.com",
+            "name": "Demoted",
+            "groups": ["engineers"],
+            "nonce": "test-nonce-demoted",
+        }
+
+        response = await client.get(
+            "/api/auth/callback",
+            params={"code": "auth-code", "state": "test-state-demoted"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 302
+
+        result = await db_session.execute(select(User).where(User.sub == "demoted-sub"))
+        assert result.scalar_one().is_admin is False
 
     async def test_callback_updates_existing_user(
         self, client, db_session, mock_oidc_exchange, mock_oidc_validate

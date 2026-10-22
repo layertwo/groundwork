@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     oidc_client_id: str = ""
     oidc_client_secret: str = ""
     oidc_redirect_uri: str = "http://localhost:8000/api/auth/callback"
+    # Members of this OIDC group are Groundwork admins.
+    admin_group: str = "admins"
 
     # AWS
     aws_region: str = "us-east-1"
