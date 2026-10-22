@@ -11,13 +11,10 @@ from backend.config import settings
 from backend.database import get_db
 from backend.exceptions import ForbiddenError, UnauthorizedError
 from backend.models.user import Session, User
-from backend.services import oidc
-from backend.services.crypto import decrypt_token, encrypt_token
 
 logger = logging.getLogger(__name__)
 
 SESSION_COOKIE = "gw_session"
-REFRESH_THRESHOLD = timedelta(minutes=5)
 ABSOLUTE_SESSION_LIFETIME = timedelta(hours=24)
 
 _signer = URLSafeSerializer(settings.session_secret, salt="gw-session")
@@ -65,35 +62,6 @@ async def _load_validated_session(request: Request, db: AsyncSession) -> Session
 
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     session = await _load_validated_session(request, db)
-
-    now = datetime.now(timezone.utc)
-    if (
-        session.expires_at is not None
-        and session.refresh_token
-        and session.expires_at - now < REFRESH_THRESHOLD
-    ):
-        plain_refresh = decrypt_token(session.refresh_token)
-        if plain_refresh is None:
-            logger.warning("Could not decrypt refresh token for session %s", session.id)
-        else:
-            try:
-                tokens = await oidc.refresh_tokens(plain_refresh)
-                raw_access = tokens.get("access_token")
-                raw_refresh = tokens.get("refresh_token")
-                raw_id = tokens.get("id_token")
-                session.access_token = encrypt_token(raw_access) if raw_access else None
-                session.refresh_token = (
-                    encrypt_token(raw_refresh) if raw_refresh else session.refresh_token
-                )
-                session.id_token = encrypt_token(raw_id) if raw_id else session.id_token
-                if "expires_in" in tokens:
-                    session.expires_at = now + timedelta(seconds=tokens["expires_in"])
-                db.add(session)
-            except Exception:
-                logger.warning("Token refresh failed for session %s", session.id)
-                session.refresh_token = None
-                db.add(session)
-
     return session.user
 
 

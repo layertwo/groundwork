@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ARRAY, Boolean, ForeignKey, String, Text, func
+from sqlalchemy import ARRAY, Boolean, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,9 +31,6 @@ class Session(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "sessions"
 
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    access_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    refresh_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    id_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     state: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     nonce: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)

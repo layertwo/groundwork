@@ -72,7 +72,6 @@ class TestSessionModel:
 
         session = Session(
             user_id=user.id,
-            access_token="tok",
             state="state",
             nonce="nonce",
         )
@@ -81,4 +80,4 @@ class TestSessionModel:
 
         result = await db_session.execute(select(Session).where(Session.user_id == user.id))
         saved = result.scalar_one()
-        assert saved.access_token == "tok"
+        assert saved.state == "state"

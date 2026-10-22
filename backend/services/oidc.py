@@ -122,18 +122,3 @@ async def validate_id_token(id_token: str, nonce: str) -> dict[str, Any]:
         )
         claims.validate(leeway=_CLOCK_SKEW_LEEWAY)
     return dict(claims)
-
-
-async def refresh_tokens(refresh_token: str) -> dict[str, Any]:
-    client = _get_client()
-    try:
-        discovery = await _discover()
-        token_endpoint = discovery["token_endpoint"]
-        token = await client.fetch_token(
-            token_endpoint,
-            grant_type="refresh_token",
-            refresh_token=refresh_token,
-        )
-        return token
-    finally:
-        await client.aclose()
