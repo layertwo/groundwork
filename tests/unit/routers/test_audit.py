@@ -82,7 +82,7 @@ class TestListAuditLogs:
         data = response.json()
         assert data["total"] == 3
         assert data["page"] == 1
-        assert data["page_size"] == 50
+        assert data["pageSize"] == 50
         assert [item["action"] for item in data["items"]] == [
             "role.assume",
             "role.create",
@@ -96,7 +96,7 @@ class TestListAuditLogs:
         response = await client.get("/api/audit", cookies=_cookies(session_id))
 
         items = {item["action"]: item for item in response.json()["items"]}
-        assert items["role.create"]["user"]["display_name"] == "Audit Admin"
+        assert items["role.create"]["user"]["displayName"] == "Audit Admin"
         assert items["role.assume"]["user"] is None
 
     async def test_filters_by_resource_type(self, client, db_session):
@@ -104,7 +104,7 @@ class TestListAuditLogs:
         await _add_logs(db_session, admin)
 
         response = await client.get(
-            "/api/audit", params={"resource_type": "role"}, cookies=_cookies(session_id)
+            "/api/audit", params={"resourceType": "role"}, cookies=_cookies(session_id)
         )
 
         data = response.json()
@@ -129,7 +129,7 @@ class TestListAuditLogs:
 
         response = await client.get(
             "/api/audit",
-            params={"page": 2, "page_size": 1},
+            params={"page": 2, "pageSize": 1},
             cookies=_cookies(session_id),
         )
 
@@ -170,7 +170,7 @@ class TestListAuditLogs:
         _, session_id = await _create_authenticated_user(db_session, is_admin=True)
 
         response = await client.get(
-            "/api/audit", params={"page_size": 0}, cookies=_cookies(session_id)
+            "/api/audit", params={"pageSize": 0}, cookies=_cookies(session_id)
         )
 
         assert response.status_code == 422
