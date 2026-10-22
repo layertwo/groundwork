@@ -11,11 +11,11 @@ from backend.dependencies.auth import get_current_admin, get_current_user
 from backend.exceptions import ConflictError, GroundworkError, NotFoundError
 from backend.models.job import Job
 from backend.models.user import User
-from backend.schemas.job import (
-    CreateJobResponse,
-    JobCreate,
-    JobListResponse,
-    JobResponse,
+from backend.schemas.generated.models import (
+    CreateJobRequestContent,
+    CreateJobResponseContent,
+    GetJobResponseContent,
+    ListJobsResponseContent,
 )
 from backend.services.jobs import execute_job
 
@@ -24,9 +24,9 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 ALLOWED_JOB_TYPES = {"sync_accounts"}
 
 
-@router.post("", response_model=CreateJobResponse, status_code=201)
+@router.post("", response_model=CreateJobResponseContent, status_code=201)
 async def create_job(
-    body: JobCreate,
+    body: CreateJobRequestContent,
     request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
@@ -62,7 +62,7 @@ async def create_job(
     return job
 
 
-@router.get("", response_model=JobListResponse)
+@router.get("", response_model=ListJobsResponseContent)
 async def list_jobs(
     account_id: Optional[UUID] = Query(None, alias="accountId"),
     status: Optional[Literal["pending", "in_progress", "completed", "failed"]] = Query(None),
@@ -96,7 +96,7 @@ async def list_jobs(
     return {"jobs": list(result.scalars().all())}
 
 
-@router.get("/{job_id}", response_model=JobResponse)
+@router.get("/{job_id}", response_model=GetJobResponseContent)
 async def get_job(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),

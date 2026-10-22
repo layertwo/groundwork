@@ -14,14 +14,15 @@ from backend.exceptions import ConflictError, GroundworkError, NotFoundError
 from backend.models.account import Account
 from backend.models.job import Job
 from backend.models.user import User
-from backend.schemas.account import (
-    AccountCreate,
-    AccountListResponse,
-    AccountResponse,
-    AccountUpdate,
-    CreateAccountResponse,
-    UpdateAccountResponse,
+from backend.schemas.generated.models import (
+    CreateAccountRequestContent,
+    CreateAccountResponseContent,
+    GetAccountResponseContent,
+    ListAccountsResponseContent,
+    UpdateAccountRequestContent,
+    UpdateAccountResponseContent,
 )
+from backend.schemas.validation import ensure_email
 from backend.services import aws
 from backend.services.audit import log_event
 from backend.services.jobs import execute_job
@@ -29,7 +30,7 @@ from backend.services.jobs import execute_job
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 
-@router.get("", response_model=AccountListResponse)
+@router.get("", response_model=ListAccountsResponseContent)
 async def list_accounts(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -38,13 +39,16 @@ async def list_accounts(
     return {"accounts": list(result.scalars().all())}
 
 
-@router.post("", response_model=CreateAccountResponse, status_code=201)
+@router.post("", response_model=CreateAccountResponseContent, status_code=201)
 async def create_account(
-    body: AccountCreate,
+    body: CreateAccountRequestContent,
     request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
+    ensure_email(body.account_email)
+    ensure_email(body.sso_user_email)
+
     # Check for duplicate email
     existing = await db.execute(select(Account).where(Account.account_email == body.account_email))
     if existing.scalar_one_or_none() is not None:
@@ -96,7 +100,7 @@ async def create_account(
     return account
 
 
-@router.get("/{account_id}", response_model=AccountResponse)
+@router.get("/{account_id}", response_model=GetAccountResponseContent)
 async def get_account(
     account_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -109,10 +113,10 @@ async def get_account(
     return account
 
 
-@router.patch("/{account_id}", response_model=UpdateAccountResponse)
+@router.patch("/{account_id}", response_model=UpdateAccountResponseContent)
 async def update_account(
     account_id: UUID,
-    body: AccountUpdate,
+    body: UpdateAccountRequestContent,
     request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),

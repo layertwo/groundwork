@@ -83,14 +83,14 @@ export default function RoleCreate() {
       }
 
       await createRole(accountId, {
-        role_name: roleName,
-        template_id: mode === 'template' ? templateId : null,
-        managed_policy_arns: mode === 'custom' ? managedPolicies : [],
-        inline_policy: parsedInlinePolicy,
-        allowed_groups: allowedGroups,
-        allowed_users: allowedUsers,
-        api_session_duration: apiSessionMinutes * 60,
-        console_session_duration: consoleSessionMinutes * 60,
+        roleName: roleName,
+        templateId: mode === 'template' ? templateId : null,
+        managedPolicyArns: mode === 'custom' ? managedPolicies : [],
+        inlinePolicy: parsedInlinePolicy,
+        allowedGroups: allowedGroups,
+        allowedUsers: allowedUsers,
+        apiSessionDuration: apiSessionMinutes * 60,
+        consoleSessionDuration: consoleSessionMinutes * 60,
         description: description || null,
       })
       await queryClient.invalidateQueries({ queryKey: ['roles'] })
@@ -118,9 +118,9 @@ export default function RoleCreate() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="role_name">Role Name</Label>
+          <Label htmlFor="roleName">Role Name</Label>
           <Input
-            id="role_name"
+            id="roleName"
             value={roleName}
             onChange={(e) => setRoleName(e.target.value)}
             required
@@ -187,9 +187,9 @@ export default function RoleCreate() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="inline_policy">Inline Policy (JSON)</Label>
+              <Label htmlFor="inlinePolicy">Inline Policy (JSON)</Label>
               <Textarea
-                id="inline_policy"
+                id="inlinePolicy"
                 value={inlinePolicy}
                 onChange={(e) => setInlinePolicy(e.target.value)}
                 rows={6}

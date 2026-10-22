@@ -45,12 +45,12 @@ export default function RoleEditDialog({
   useEffect(() => {
     if (role && open) {
       setDescription(role.description ?? '')
-      setManagedPolicies(role.managed_policy_arns)
-      setInlinePolicy(role.inline_policy ? JSON.stringify(role.inline_policy, null, 2) : '')
-      setAllowedGroups(role.allowed_groups)
-      setAllowedUsers(role.allowed_users)
-      setApiSessionMinutes(Math.round(role.api_session_duration / 60))
-      setConsoleSessionMinutes(Math.round(role.console_session_duration / 60))
+      setManagedPolicies(role.managedPolicyArns)
+      setInlinePolicy(role.inlinePolicy ? JSON.stringify(role.inlinePolicy, null, 2) : '')
+      setAllowedGroups(role.allowedGroups)
+      setAllowedUsers(role.allowedUsers)
+      setApiSessionMinutes(Math.round(role.apiSessionDuration / 60))
+      setConsoleSessionMinutes(Math.round(role.consoleSessionDuration / 60))
       setError('')
     }
   }, [role, open])
@@ -94,12 +94,12 @@ export default function RoleEditDialog({
 
       await updateRole(accountId, role.id, {
         description: description || null,
-        managed_policy_arns: managedPolicies,
-        inline_policy: parsedInlinePolicy,
-        allowed_groups: allowedGroups,
-        allowed_users: allowedUsers,
-        api_session_duration: apiSessionMinutes * 60,
-        console_session_duration: consoleSessionMinutes * 60,
+        managedPolicyArns: managedPolicies,
+        inlinePolicy: parsedInlinePolicy,
+        allowedGroups: allowedGroups,
+        allowedUsers: allowedUsers,
+        apiSessionDuration: apiSessionMinutes * 60,
+        consoleSessionDuration: consoleSessionMinutes * 60,
       })
       onUpdated()
       toast.success('Role updated')
@@ -115,7 +115,7 @@ export default function RoleEditDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit {role?.role_name}</DialogTitle>
+          <DialogTitle>Edit {role?.roleName}</DialogTitle>
         </DialogHeader>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -141,9 +141,9 @@ export default function RoleEditDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit_inline_policy">Inline Policy (JSON)</Label>
+            <Label htmlFor="edit_inlinePolicy">Inline Policy (JSON)</Label>
             <Textarea
-              id="edit_inline_policy"
+              id="edit_inlinePolicy"
               value={inlinePolicy}
               onChange={(e) => setInlinePolicy(e.target.value)}
               rows={6}

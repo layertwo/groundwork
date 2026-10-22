@@ -16,5 +16,7 @@ service Groundwork {
     resources: [
         Account
         Job
+        Role
+        RoleTemplate
     ]
 }

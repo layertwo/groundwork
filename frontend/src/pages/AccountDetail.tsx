@@ -150,7 +150,7 @@ export default function AccountDetail() {
     queryFn: getRoleTemplates,
   })
 
-  const roles = allRoles?.filter((r) => r.account_id === id) ?? []
+  const roles = allRoles?.filter((r) => r.accountId === id) ?? []
 
   const [roleSearch, setRoleSearch] = useState('')
   const filteredRoles = useMemo(() => {
@@ -158,10 +158,10 @@ export default function AccountDetail() {
     if (!q) return roles
     return roles.filter(
       (r) =>
-        r.role_name.toLowerCase().includes(q) ||
+        r.roleName.toLowerCase().includes(q) ||
         (r.description ?? '').toLowerCase().includes(q) ||
-        r.allowed_groups.some((g) => g.toLowerCase().includes(q)) ||
-        r.allowed_users.some((u) => u.toLowerCase().includes(q))
+        r.allowedGroups.some((g) => g.toLowerCase().includes(q)) ||
+        r.allowedUsers.some((u) => u.toLowerCase().includes(q))
     )
   }, [roles, roleSearch])
 
@@ -237,8 +237,8 @@ export default function AccountDetail() {
     setCreating(true)
     try {
       await createRole(id, {
-        role_name: templateName,
-        template_id: templateId,
+        roleName: templateName,
+        templateId: templateId,
       })
       refetchRoles()
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
@@ -486,7 +486,7 @@ export default function AccountDetail() {
               <Card key={role.id}>
                 <CardHeader>
                   <div className="flex items-center gap-2">
-                    <CardTitle className="text-base">{role.role_name}</CardTitle>
+                    <CardTitle className="text-base">{role.roleName}</CardTitle>
                     <Badge variant={statusVariant(role.status)} className="text-xs">
                       {role.status}
                     </Badge>
@@ -494,18 +494,18 @@ export default function AccountDetail() {
                   {role.description && (
                     <CardDescription>{role.description}</CardDescription>
                   )}
-                  {role.error_message && (
-                    <p className="text-xs text-destructive">{role.error_message}</p>
+                  {role.errorMessage && (
+                    <p className="text-xs text-destructive">{role.errorMessage}</p>
                   )}
-                  {role.last_used_at ? (
+                  {role.lastUsedAt ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <p className="text-xs text-muted-foreground cursor-default">
-                          Last used {relativeTime(role.last_used_at)}
+                          Last used {relativeTime(role.lastUsedAt)}
                         </p>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>{new Date(role.last_used_at).toLocaleString()}</p>
+                        <p>{new Date(role.lastUsedAt).toLocaleString()}</p>
                       </TooltipContent>
                     </Tooltip>
                   ) : (
@@ -517,11 +517,11 @@ export default function AccountDetail() {
                         variant="outline"
                         size="xs"
                         disabled={
-                          loading === role.role_name ||
+                          loading === role.roleName ||
                           account.status !== 'active' ||
                           role.status !== 'active'
                         }
-                        onClick={() => handleFederate(role.role_name)}
+                        onClick={() => handleFederate(role.roleName)}
                       >
                         Federate
                       </Button>
@@ -529,11 +529,11 @@ export default function AccountDetail() {
                         variant="outline"
                         size="xs"
                         disabled={
-                          loading === role.role_name ||
+                          loading === role.roleName ||
                           account.status !== 'active' ||
                           role.status !== 'active'
                         }
-                        onClick={() => handleCopyCli(role.role_name)}
+                        onClick={() => handleCopyCli(role.roleName)}
                       >
                         CLI
                       </Button>
@@ -544,8 +544,8 @@ export default function AccountDetail() {
                   <div>
                     <span className="text-xs text-muted-foreground">Groups</span>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {role.allowed_groups.length > 0
-                        ? role.allowed_groups.map((g) => (
+                      {role.allowedGroups.length > 0
+                        ? role.allowedGroups.map((g) => (
                             <Badge key={g} variant="outline" className="text-xs">
                               {g}
                             </Badge>
@@ -556,8 +556,8 @@ export default function AccountDetail() {
                   <div>
                     <span className="text-xs text-muted-foreground">Users</span>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {role.allowed_users.length > 0
-                        ? role.allowed_users.map((u) => (
+                      {role.allowedUsers.length > 0
+                        ? role.allowedUsers.map((u) => (
                             <Badge key={u} variant="outline" className="text-xs">
                               {u}
                             </Badge>
@@ -565,11 +565,11 @@ export default function AccountDetail() {
                         : <span className="text-xs text-muted-foreground">—</span>}
                     </div>
                   </div>
-                  {role.managed_policy_arns.length > 0 && (
+                  {role.managedPolicyArns.length > 0 && (
                     <div>
                       <span className="text-xs text-muted-foreground">Policies</span>
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {role.managed_policy_arns.map((arn) => (
+                        {role.managedPolicyArns.map((arn) => (
                           <HoverCard key={arn} openDelay={200} closeDelay={0}>
                             <HoverCardTrigger asChild>
                               <Badge variant="secondary" className="text-xs cursor-default">

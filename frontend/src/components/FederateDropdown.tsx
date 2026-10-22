@@ -84,11 +84,11 @@ export default function FederateDropdown({
           {roles.map((role, i) => (
             <DropdownMenuGroup key={role.id}>
               {i > 0 && <DropdownMenuSeparator />}
-              <DropdownMenuLabel>{role.role_name}</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleFederate(role.role_name)}>
+              <DropdownMenuLabel>{role.roleName}</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleFederate(role.roleName)}>
                 Federate
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleCopyCli(role.role_name)}>
+              <DropdownMenuItem onClick={() => handleCopyCli(role.roleName)}>
                 Copy CLI
               </DropdownMenuItem>
             </DropdownMenuGroup>

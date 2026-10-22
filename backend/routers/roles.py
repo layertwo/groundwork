@@ -20,17 +20,20 @@ from backend.models.job import Job
 from backend.models.role import Role
 from backend.models.role_template import RoleTemplate
 from backend.models.user import User
-from backend.schemas.role import (
-    AssumeRoleResponse,
-    RoleCreate,
-    RoleResponse,
-    RoleUpdate,
+from backend.schemas.federate import AssumeRoleResponse
+from backend.schemas.generated.models import (
+    CreateRoleRequestContent,
+    CreateRoleResponseContent,
+    CreateRoleTemplateRequestContent,
+    CreateRoleTemplateResponseContent,
+    ListRolesResponseContent,
+    ListRoleTemplatesResponseContent,
+    UpdateRoleRequestContent,
+    UpdateRoleResponseContent,
+    UpdateRoleTemplateRequestContent,
+    UpdateRoleTemplateResponseContent,
 )
-from backend.schemas.role_template import (
-    RoleTemplateCreate,
-    RoleTemplateResponse,
-    RoleTemplateUpdate,
-)
+from backend.schemas.validation import ensure_inline_policy
 from backend.services import aws
 from backend.services.audit import log_event
 from backend.services.jobs import execute_job
@@ -56,16 +59,18 @@ def _sanitize_session_name(raw: str) -> str:
 
 @router.post(
     "/api/accounts/{account_id}/roles",
-    response_model=RoleResponse,
+    response_model=CreateRoleResponseContent,
     status_code=201,
 )
 async def create_role(
     account_id: UUID,
-    body: RoleCreate,
+    body: CreateRoleRequestContent,
     request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
+    ensure_inline_policy(body.inline_policy)
+
     # Verify account exists and is active
     result = await db.execute(select(Account).where(Account.id == account_id))
     account = result.scalar_one_or_none()
@@ -82,11 +87,11 @@ async def create_role(
         raise ConflictError("A role with this name already exists on this account")
 
     # If template_id provided, use its managed_policy_arns
-    managed_policy_arns = body.managed_policy_arns
+    fields = body.model_dump()
+    managed_policy_arns = fields["managed_policy_arns"]
     if body.template_id is not None:
-        tmpl_result = await db.execute(
-            select(RoleTemplate).where(RoleTemplate.id == body.template_id)
-        )
+        template_id = UUID(body.template_id)
+        tmpl_result = await db.execute(select(RoleTemplate).where(RoleTemplate.id == template_id))
         template = tmpl_result.scalar_one_or_none()
         if template is None:
             raise NotFoundError("Template not found")
@@ -98,8 +103,8 @@ async def create_role(
         role_arn="",  # placeholder until IAM creation completes
         managed_policy_arns=managed_policy_arns,
         inline_policy=body.inline_policy,
-        allowed_groups=body.allowed_groups,
-        allowed_users=body.allowed_users,
+        allowed_groups=fields["allowed_groups"],
+        allowed_users=fields["allowed_users"],
         api_session_duration=body.api_session_duration,
         console_session_duration=body.console_session_duration,
         description=body.description,
@@ -141,16 +146,18 @@ async def create_role(
 
 @router.patch(
     "/api/accounts/{account_id}/roles/{role_id}",
-    response_model=RoleResponse,
+    response_model=UpdateRoleResponseContent,
 )
 async def update_role(
     account_id: UUID,
     role_id: UUID,
-    body: RoleUpdate,
+    body: UpdateRoleRequestContent,
     request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
+    ensure_inline_policy(body.inline_policy)
+
     result = await db.execute(select(Role).where(Role.id == role_id, Role.account_id == account_id))
     role = result.scalar_one_or_none()
     if role is None:
@@ -366,7 +373,7 @@ async def fix_drift(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/roles", response_model=list[RoleResponse])
+@router.get("/api/roles", response_model=ListRolesResponseContent)
 async def list_roles(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -386,7 +393,7 @@ async def list_roles(
         if user.is_admin or user_groups & role_groups or user.sub in role_users:
             visible.append(role)
 
-    return visible
+    return {"roles": visible}
 
 
 def _check_role_access(role: Role, user: User) -> None:
@@ -515,17 +522,19 @@ async def federate(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/roles/templates", response_model=list[RoleTemplateResponse])
+@router.get("/api/roles/templates", response_model=ListRoleTemplatesResponseContent)
 async def list_templates(
     db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)
 ):
     result = await db.execute(select(RoleTemplate).order_by(RoleTemplate.name))
-    return result.scalars().all()
+    return {"templates": list(result.scalars().all())}
 
 
-@router.post("/api/roles/templates", response_model=RoleTemplateResponse, status_code=201)
+@router.post(
+    "/api/roles/templates", response_model=CreateRoleTemplateResponseContent, status_code=201
+)
 async def create_template(
-    body: RoleTemplateCreate,
+    body: CreateRoleTemplateRequestContent,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ):
@@ -536,7 +545,7 @@ async def create_template(
     template = RoleTemplate(
         name=body.name,
         description=body.description,
-        managed_policy_arns=body.managed_policy_arns,
+        managed_policy_arns=body.model_dump()["managed_policy_arns"],
     )
     db.add(template)
     await db.flush()
@@ -544,10 +553,12 @@ async def create_template(
     return template
 
 
-@router.patch("/api/roles/templates/{template_id}", response_model=RoleTemplateResponse)
+@router.patch(
+    "/api/roles/templates/{template_id}", response_model=UpdateRoleTemplateResponseContent
+)
 async def update_template(
     template_id: UUID,
-    body: RoleTemplateUpdate,
+    body: UpdateRoleTemplateRequestContent,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ):
