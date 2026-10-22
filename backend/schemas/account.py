@@ -9,15 +9,17 @@ the generated classes under the names the router uses.
 from pydantic import EmailStr, TypeAdapter, field_validator
 
 from backend.schemas.generated.models import (
-    AccountUpdate,
     CreateAccountRequestContent,
     CreateAccountResponseContent,
     GetAccountResponseContent,
+    ListAccountsResponseContent,
+    UpdateAccountRequestContent,
     UpdateAccountResponseContent,
 )
 
 __all__ = [
     "AccountCreate",
+    "AccountListResponse",
     "AccountResponse",
     "AccountUpdate",
     "CreateAccountResponse",
@@ -37,6 +39,8 @@ class AccountCreate(CreateAccountRequestContent):
         return value
 
 
+AccountUpdate = UpdateAccountRequestContent
 AccountResponse = GetAccountResponseContent
+AccountListResponse = ListAccountsResponseContent
 CreateAccountResponse = CreateAccountResponseContent
 UpdateAccountResponse = UpdateAccountResponseContent

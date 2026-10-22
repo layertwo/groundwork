@@ -162,7 +162,7 @@ class TestListAccounts:
         response = await client.get("/api/accounts", cookies=_cookies(session_id))
 
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["accounts"]
         assert len(data) >= 3
 
     async def test_list_accounts_unauthenticated_returns_401(self, client):
@@ -423,7 +423,7 @@ class TestAccountResponseIncludesMetadata:
         )
 
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["accounts"]
         matched = [a for a in data if a["awsAccountId"] == "666666666666"]
         assert len(matched) == 1
         assert matched[0]["alias"] == "staging"

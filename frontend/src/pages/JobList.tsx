@@ -46,7 +46,7 @@ export default function JobList() {
 
   const filters = {
     ...(statusFilter !== ALL && { status: statusFilter }),
-    ...(typeFilter !== ALL && { job_type: typeFilter }),
+    ...(typeFilter !== ALL && { jobType: typeFilter }),
   }
 
   const { data: jobs, isLoading } = useQuery({
@@ -67,10 +67,10 @@ export default function JobList() {
     if (!q) return jobs
     return jobs.filter(
       (j) =>
-        j.job_type.toLowerCase().includes(q) ||
+        j.jobType.toLowerCase().includes(q) ||
         j.status.toLowerCase().includes(q) ||
-        (j.account_id
-          ? (accountMap.get(j.account_id) ?? j.account_id) : ''
+        (j.accountId
+          ? (accountMap.get(j.accountId) ?? j.accountId) : ''
         ).toLowerCase().includes(q)
     )
   }, [jobs, search, accountMap])
@@ -136,15 +136,15 @@ export default function JobList() {
           <TableBody>
             {filteredJobs.map((job) => (
               <TableRow key={job.id}>
-                <TableCell className="font-mono text-sm">{job.job_type}</TableCell>
+                <TableCell className="font-mono text-sm">{job.jobType}</TableCell>
                 <TableCell>
-                  {job.account_id ? accountMap.get(job.account_id) ?? job.account_id : 'Org-wide'}
+                  {job.accountId ? accountMap.get(job.accountId) ?? job.accountId : 'Org-wide'}
                 </TableCell>
                 <TableCell>
                   <Badge variant={statusVariant(job.status)}>{job.status}</Badge>
                 </TableCell>
-                <TableCell className="text-sm">{formatDate(job.started_at)}</TableCell>
-                <TableCell className="text-sm">{formatDate(job.completed_at)}</TableCell>
+                <TableCell className="text-sm">{formatDate(job.startedAt)}</TableCell>
+                <TableCell className="text-sm">{formatDate(job.completedAt)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

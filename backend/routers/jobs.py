@@ -11,7 +11,12 @@ from backend.dependencies.auth import get_current_admin, get_current_user
 from backend.exceptions import ConflictError, GroundworkError, NotFoundError
 from backend.models.job import Job
 from backend.models.user import User
-from backend.schemas.job import JobCreate, JobResponse
+from backend.schemas.job import (
+    CreateJobResponse,
+    JobCreate,
+    JobListResponse,
+    JobResponse,
+)
 from backend.services.jobs import execute_job
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -19,7 +24,7 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 ALLOWED_JOB_TYPES = {"sync_accounts"}
 
 
-@router.post("", response_model=JobResponse, status_code=201)
+@router.post("", response_model=CreateJobResponse, status_code=201)
 async def create_job(
     body: JobCreate,
     request: Request,
@@ -57,9 +62,9 @@ async def create_job(
     return job
 
 
-@router.get("", response_model=list[JobResponse])
+@router.get("", response_model=JobListResponse)
 async def list_jobs(
-    account_id: Optional[UUID] = Query(None),
+    account_id: Optional[UUID] = Query(None, alias="accountId"),
     status: Optional[Literal["pending", "in_progress", "completed", "failed"]] = Query(None),
     job_type: Optional[
         Literal[
@@ -70,7 +75,7 @@ async def list_jobs(
             "update_role",
             "delete_role",
         ]
-    ] = Query(None),
+    ] = Query(None, alias="jobType"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -88,7 +93,7 @@ async def list_jobs(
         query = query.where(Job.job_type == job_type)
 
     result = await db.execute(query)
-    return result.scalars().all()
+    return {"jobs": list(result.scalars().all())}
 
 
 @router.get("/{job_id}", response_model=JobResponse)

@@ -36,7 +36,9 @@ export interface AccountUpdate {
 }
 
 export function listAccounts(): Promise<AccountResponse[]> {
-  return apiFetch<AccountResponse[]>('/api/accounts')
+  return apiFetch<{ accounts: AccountResponse[] }>('/api/accounts').then(
+    (data) => data.accounts,
+  )
 }
 
 export function getAccount(id: string): Promise<AccountResponse> {

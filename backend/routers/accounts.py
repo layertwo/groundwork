@@ -16,6 +16,7 @@ from backend.models.job import Job
 from backend.models.user import User
 from backend.schemas.account import (
     AccountCreate,
+    AccountListResponse,
     AccountResponse,
     AccountUpdate,
     CreateAccountResponse,
@@ -28,13 +29,13 @@ from backend.services.jobs import execute_job
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 
-@router.get("", response_model=list[AccountResponse])
+@router.get("", response_model=AccountListResponse)
 async def list_accounts(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     result = await db.execute(select(Account).order_by(Account.created_at.desc()))
-    return list(result.scalars().all())
+    return {"accounts": list(result.scalars().all())}
 
 
 @router.post("", response_model=CreateAccountResponse, status_code=201)

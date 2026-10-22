@@ -64,7 +64,7 @@ class TestListJobs:
         response = await client.get("/api/jobs", cookies=_cookies(session_id))
 
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["jobs"]
         assert len(data) >= 2
 
     async def test_list_jobs_non_admin_sees_own(self, client, db_session):
@@ -100,10 +100,10 @@ class TestListJobs:
         response = await client.get("/api/jobs", cookies=_cookies(user_session))
 
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["jobs"]
         # Non-admin should only see their own job
         for job in data:
-            assert job["started_by"] == str(user.id)
+            assert job["startedBy"] == str(user.id)
 
     async def test_list_jobs_filter_by_status(self, client, db_session):
         admin, session_id = await _create_authenticated_user(db_session, is_admin=True)
@@ -143,7 +143,7 @@ class TestListJobs:
         )
 
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["jobs"]
         for job in data:
             assert job["status"] == "completed"
 
@@ -178,8 +178,8 @@ class TestGetJob:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["job_type"] == "provision_account"
-        assert data["account_id"] == str(account.id)
+        assert data["jobType"] == "provision_account"
+        assert data["accountId"] == str(account.id)
 
     async def test_get_job_non_admin_cannot_see_others_job(self, client, db_session):
         admin, _ = await _create_authenticated_user(db_session, is_admin=True)
@@ -223,23 +223,23 @@ class TestCreateJob:
         with patch("backend.routers.jobs.execute_job", new_callable=AsyncMock):
             response = await client.post(
                 "/api/jobs",
-                json={"job_type": "sync_accounts"},
+                json={"jobType": "sync_accounts"},
                 cookies=_cookies(session_id),
             )
 
         assert response.status_code == 201
         data = response.json()
-        assert data["job_type"] == "sync_accounts"
+        assert data["jobType"] == "sync_accounts"
         assert data["status"] == "pending"
-        assert data["account_id"] is None
-        assert data["started_by"] == str(admin.id)
+        assert data["accountId"] is None
+        assert data["startedBy"] == str(admin.id)
 
     async def test_create_job_unsupported_type_returns_400(self, client, db_session):
         _, session_id = await _create_authenticated_user(db_session, is_admin=True)
 
         response = await client.post(
             "/api/jobs",
-            json={"job_type": "nonexistent_type"},
+            json={"jobType": "nonexistent_type"},
             cookies=_cookies(session_id),
         )
 
@@ -250,7 +250,7 @@ class TestCreateJob:
 
         response = await client.post(
             "/api/jobs",
-            json={"job_type": "sync_accounts"},
+            json={"jobType": "sync_accounts"},
             cookies=_cookies(user_session),
         )
 
@@ -271,7 +271,7 @@ class TestCreateJob:
 
         response = await client.post(
             "/api/jobs",
-            json={"job_type": "sync_accounts"},
+            json={"jobType": "sync_accounts"},
             cookies=_cookies(session_id),
         )
 
@@ -280,7 +280,7 @@ class TestCreateJob:
     async def test_create_job_unauthenticated_returns_401(self, client):
         response = await client.post(
             "/api/jobs",
-            json={"job_type": "sync_accounts"},
+            json={"jobType": "sync_accounts"},
         )
 
         assert response.status_code == 401

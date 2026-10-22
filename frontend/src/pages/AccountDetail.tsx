@@ -169,7 +169,7 @@ export default function AccountDetail() {
 
   const { data: jobs } = useQuery({
     queryKey: ['jobs', id],
-    queryFn: () => listJobs({ account_id: id }),
+    queryFn: () => listJobs({ accountId: id }),
     enabled: !!id && isProvisioning,
   })
 
@@ -424,9 +424,9 @@ export default function AccountDetail() {
           {jobs.map((job) => (
             <div key={job.id} className="flex items-center gap-2 text-sm">
               <Badge variant={statusVariant(job.status)}>{job.status}</Badge>
-              <span>{job.job_type}</span>
-              {job.error_message && (
-                <span className="text-destructive">{job.error_message}</span>
+              <span>{job.jobType}</span>
+              {job.errorMessage && (
+                <span className="text-destructive">{job.errorMessage}</span>
               )}
             </div>
           ))}
