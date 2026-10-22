@@ -1,49 +1,51 @@
 import { apiFetch } from './client'
 
+// Wire shapes mirror smithy/models/audit.smithy.
+
 export interface AuditUser {
   id: string
-  display_name: string
+  displayName: string
 }
 
 export interface AuditLogEntry {
   id: number
-  user_id: string | null
+  userId: string | null
   action: string
-  resource_type: string | null
-  resource_id: string | null
+  resourceType: string | null
+  resourceId: string | null
   detail: Record<string, unknown> | null
-  ip_address: string | null
-  user_agent: string | null
-  created_at: string
+  ipAddress: string | null
+  userAgent: string | null
+  createdAt: string
   user: AuditUser | null
 }
 
 export interface AuditLogFilters {
-  resource_type?: string
-  resource_id?: string
-  user_id?: string
+  resourceType?: string
+  resourceId?: string
+  userId?: string
   action?: string
   page?: number
-  page_size?: number
+  pageSize?: number
 }
 
 export interface Paginated<T> {
   items: T[]
   total: number
   page: number
-  page_size: number
+  pageSize: number
 }
 
 export function listAuditLogs(
   filters: AuditLogFilters,
 ): Promise<Paginated<AuditLogEntry>> {
   const params = new URLSearchParams()
-  if (filters.resource_type) params.set('resource_type', filters.resource_type)
-  if (filters.resource_id) params.set('resource_id', filters.resource_id)
-  if (filters.user_id) params.set('user_id', filters.user_id)
+  if (filters.resourceType) params.set('resourceType', filters.resourceType)
+  if (filters.resourceId) params.set('resourceId', filters.resourceId)
+  if (filters.userId) params.set('userId', filters.userId)
   if (filters.action) params.set('action', filters.action)
   if (filters.page) params.set('page', String(filters.page))
-  if (filters.page_size) params.set('page_size', String(filters.page_size))
+  if (filters.pageSize) params.set('pageSize', String(filters.pageSize))
   const qs = params.toString()
   return apiFetch<Paginated<AuditLogEntry>>(`/api/audit${qs ? `?${qs}` : ''}`)
 }

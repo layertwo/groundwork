@@ -18,5 +18,6 @@ service Groundwork {
         Job
         Role
         RoleTemplate
+        AuditEntry
     ]
 }

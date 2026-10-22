@@ -46,14 +46,14 @@ export default function AuditLog() {
     queryKey: ['audit', { resourceType, action, page }],
     queryFn: () =>
       listAuditLogs({
-        ...(resourceType !== ALL && { resource_type: resourceType }),
+        ...(resourceType !== ALL && { resourceType: resourceType }),
         ...(action && { action }),
         page,
-        page_size: PAGE_SIZE,
+        pageSize: PAGE_SIZE,
       }),
   })
 
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1
 
   return (
     <div className="space-y-4">
@@ -110,13 +110,13 @@ export default function AuditLog() {
               {data.items.map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell className="text-sm whitespace-nowrap">
-                    {formatDate(entry.created_at)}
+                    {formatDate(entry.createdAt)}
                   </TableCell>
-                  <TableCell>{entry.user?.display_name ?? 'system'}</TableCell>
+                  <TableCell>{entry.user?.displayName ?? 'system'}</TableCell>
                   <TableCell className="font-mono text-sm">{entry.action}</TableCell>
                   <TableCell className="text-sm">
-                    {entry.resource_type
-                      ? `${entry.resource_type}/${entry.resource_id ?? '—'}`
+                    {entry.resourceType
+                      ? `${entry.resourceType}/${entry.resourceId ?? '—'}`
                       : '—'}
                   </TableCell>
                   <TableCell
@@ -126,7 +126,7 @@ export default function AuditLog() {
                     {formatDetail(entry.detail)}
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
-                    {entry.ip_address ?? '—'}
+                    {entry.ipAddress ?? '—'}
                   </TableCell>
                 </TableRow>
               ))}
