@@ -22,7 +22,7 @@ RUN npm run build
 FROM python:3.14-slim-trixie AS builder
 
 # Copy uv binary from the official image (faster than `pip install uv`)
-COPY --from=ghcr.io/astral-sh/uv:0.11.17 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /bin/
 
 WORKDIR /app
 
