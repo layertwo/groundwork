@@ -30,7 +30,7 @@ dev = [
     "isort==9.0.2",
     "flake8==7.4.1",
     "Flake8-pyproject==1.2.4",
-    "mypy==2.4.0",
+    "mypy==2.4.1",
     "hypothesis>=6.0",
 ]
 
